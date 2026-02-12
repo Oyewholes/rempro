@@ -6,6 +6,7 @@ from .models import (
 )
 from django.db import transaction
 from django.utils import timezone
+from django.contrib.auth import authenticate
 
 
 # --- 1. Authentication and User Serializers ---
@@ -43,7 +44,40 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 class UserLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    password = serializers.CharField(style={'input_type': 'password'})
+    password = serializers.CharField(style={'input_type': 'password'}, write_only=True)
+
+    def validate(self, data):
+        email = data.get('email')
+        password = data.get('password')
+
+        if email and password:
+            # Authenticate user
+            user = authenticate(
+                request=self.context.get('request'),
+                username=email,  # Using email as username
+                password=password
+            )
+
+            if not user:
+                raise serializers.ValidationError(
+                    'Unable to log in with provided credentials.',
+                    code='authorization'
+                )
+
+            if not user.is_active:
+                raise serializers.ValidationError(
+                    'User account is disabled.',
+                    code='authorization'
+                )
+
+            # Add user to validated data
+            data['user'] = user
+        else:
+            raise serializers.ValidationError(
+                'Must include "email" and "password".',
+                code='authorization'
+            )
+        return data
 
 
 # --- 2. OTP and Verification Serializers ---
