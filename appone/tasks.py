@@ -1,6 +1,7 @@
 from celery import shared_task
 from django.utils import timezone
 from datetime import timedelta
+import logging
 from .models import (
     FreelancerProfile, CompanyProfile, OTPVerification,
     Payment, Message, Contract
@@ -11,23 +12,76 @@ from .utils import (
     send_notification_email, process_paystack_payment
 )
 
+logger = logging.getLogger(__name__)
 
-@shared_task
-def send_otp_task(otp_id):
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_otp_task(self, otp_id):
     """
     Async task to send OTP via SMS or Email
+
+    Args:
+        otp_id: ID of the OTPVerification object
+
+    Returns:
+        dict: Status of the operation
     """
     try:
         otp = OTPVerification.objects.get(id=otp_id)
 
+        # Check if OTP is still valid
+        if otp.is_verified:
+            logger.info(f"OTP {otp_id} already verified, skipping send")
+            return{'success': True, 'message': 'OTP already verified'}
+
+        if otp.expires_at < timezone.now():
+            logger.warning(f"OTP {otp_id} expired, not sending")
+            return {'success': False, 'message': 'OTP expired'}
+        # Send based on type
+        success = False
+
         if otp.otp_type == 'phone':
+            logger.info(f"Sending phone OTP to {otp.phone_number}")
             success = send_otp_sms(otp.phone_number, otp.otp_code)
-        else:
+        elif otp.otp_type in ['company_access', 'profile_access']:
+            logger.info(f"Sending email OTP to {otp.email}")
             success = send_otp_email(otp.email, otp.otp_code, otp.otp_type)
 
-        return {'success': success, 'otp_id': str(otp_id)}
+        else:
+            logger.error(f"Unknown OTP type: {otp.otp_type}")
+            return {'success': False, 'error': 'Unknown OTP type'}
+
+        if success:
+            logger.info(f"OTP {otp_id} sent successfully")
+            return {
+                'success': True,
+                'otp_id': str(otp_id),
+                'otp_type': otp.otp_type
+            }
+        else:
+            # Retry the task if sending failed
+            logger.warning(f"Failed to send OTP {otp_id}, attempt {self.request.retries + 1}")
+
+            # Only retry if not in final attempt
+            if self.request.retries < self.max_retries:
+                raise self.retry(exc=Exception("SMS/Email sending failed"))
+
+            return {
+                'success': False,
+                'error': 'Failed to send OTP after retries'
+            }
+
     except OTPVerification.DoesNotExist:
+        logger.error(f"OTP {otp_id} not found")
         return {'success': False, 'error': 'OTP not found'}
+
+    except Exception as e:
+        logger.error(f"Error in send_otp_task: {str(e)}", exc_info=True)
+
+        # Retry on unexpected errors
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+
+        return {'success': False, 'error': str(e)}
 
 
 @shared_task
@@ -196,16 +250,24 @@ def check_flagged_messages():
 def cleanup_expired_otps():
     """
     Periodic task to clean up expired OTPs
+    Run this every hour via Celery Beat
+
     """
-    expired_otps = OTPVerification.objects.filter(
-        is_verified=False,
-        expires_at__lt=timezone.now()
-    )
+    try:
+        expired_otps = OTPVerification.objects.filter(
+            is_verified=False,
+            expires_at__lt=timezone.now()
+        )
 
-    count = expired_otps.count()
-    expired_otps.delete()
+        count = expired_otps.count()
+        expired_otps.delete()
 
-    return {'deleted': count}
+        logger.info(f"Cleaned up {count} expired OTPs")
+        return {'deleted': count}
+
+    except Exception as e:
+        logger.error(f"Error cleaning up OTPs: {str(e)}", exc_info=True)
+        return {'error': str(e)}
 
 
 @shared_task
