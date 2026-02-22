@@ -1,11 +1,10 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
-from appone.view import AuthViewSet, OTPViewSet
-from .views import (
-    FreelancerProfileViewSet,
+from appone.views import (
+    AuthViewSet, OTPViewSet, FreelancerProfileViewSet,
     CompanyProfileViewSet, JobPostingViewSet, JobApplicationViewSet,
-    ContractViewSet, PaymentViewSet, WorkspaceViewSet,
-    TaskViewSet, MessageViewSet, AdminViewSet
+    ContractViewSet, PaymentViewSet, WorkspaceViewSet, TaskViewSet,
+    MessageViewSet, AdminViewSet
 )
 
 router = DefaultRouter()
@@ -34,7 +33,7 @@ router.register('admin', AdminViewSet, basename='admin')
 
 
 # The API URLs are now determined automatically by the router.
-# The `router.urls` automatically includes the API root view.
+# The `router.urls` automatically includes the API root views.
 urlpatterns = [
     path('', include(router.urls)),
 ]

@@ -1,10 +1,11 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from appone.serializers import UserRegistrationSerializer, UserLoginSerializer
 from appone.models import FreelancerProfile, CompanyProfile
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 
 
 class AuthViewSet(viewsets.ViewSet):
@@ -67,3 +68,26 @@ class AuthViewSet(viewsets.ViewSet):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def logout(self, request):
+        """Logout user by blacklisting their refresh token."""
+        refresh_token = request.data.get('refresh')
+
+        if not refresh_token:
+            return Response(
+                {'error': 'Refresh token is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            token= RefreshToken(refresh_token)
+            token.blacklist()
+            return Response(
+                {'message': 'Logged out successfully.'},
+                status=status.HTTP_205_RESET_CONTENT
+            )
+        except TokenError as e:
+            return Response(
+                {'error': f'Invalid or already revoked token: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
