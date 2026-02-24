@@ -33,7 +33,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
@@ -57,7 +57,7 @@ class FreelancerProfile(models.Model):
     )
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='freelancer_profile')
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
     phone_verified = models.BooleanField(default=False)
 
     # Personal Information
@@ -138,7 +138,7 @@ class CompanyProfile(models.Model):
     # Company Information
     company_name = models.CharField(max_length=255)
     company_email = models.EmailField(unique=True)
-    company_registration_number = models.CharField(max_length=100, unique=True)
+    company_registration_number = models.CharField(max_length=100, unique=False)
     country = models.CharField(max_length=100)
     address = models.TextField()
     phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
@@ -176,7 +176,7 @@ class OTPVerification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     otp_code = models.CharField(max_length=6)
     otp_type = models.CharField(max_length=20, choices=OTP_TYPE_CHOICES)
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
     email = models.EmailField(blank=True)
     is_verified = models.BooleanField(default=False)
     expires_at = models.DateTimeField()

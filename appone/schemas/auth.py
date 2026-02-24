@@ -63,6 +63,13 @@ class RegisterRequestSchema(serializers.ModelSerializer):
             )
         return value
 
+    def validate_user_type(self, value):
+        if value not in ('freelancer', 'company', 'admin'):
+            raise serializers.ValidationError(
+                "user_type must be 'freelancer' or 'company' or 'admin'."
+            )
+        return value
+
     def validate(self, data):
         if data['password'] != data['password2']:
             raise serializers.ValidationError({'password': "Password fields didn't match."})
@@ -79,10 +86,17 @@ class RegisterRequestSchema(serializers.ModelSerializer):
             phone_number=validated_data['phone_number'],
         )
         if user.user_type == 'freelancer':
-            FreelancerProfile.objects.create(user=user)
+            FreelancerProfile.objects.create(
+                user=user,
+                first_name = '',
+                last_name = '',
+                nin = '',
+            )
+
         elif user.user_type == 'company':
             CompanyProfile.objects.create(
                 user=user,
+                phone_number = user.phone_number,
                 company_name='',
                 company_email=user.email,
                 company_registration_number='',
@@ -99,7 +113,7 @@ class RegisterRequestSchema(serializers.ModelSerializer):
             expires_at=timezone.now() + timedelta(minutes=10),
         )
 
-        send_otp_task.delay(user.id)
+        send_otp_task.delay(OTPVerification.id)
 
         return user
 

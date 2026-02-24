@@ -32,25 +32,24 @@ class AuthViewSet(viewsets.ViewSet):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        request.save()
-        otp_id = OTPVerification.id
-        send_otp_task(otp_id)
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
 
-        # Generate JWT tokens
-        # refresh = RefreshToken.for_user(user)
-        #
-        # return Response({
-        #     'message': 'Registration successful. Please verify your phone number.',
-        #     'user': {
-        #         'id': str(user.id),
-        #         'email': user.email,
-        #         'user_type': user.user_type,
-        #     },
-        #     'tokens': {
-        #         'refresh': str(refresh),
-        #         'access': str(refresh.access_token),
-        #     },
-        # }, status=status.HTTP_201_CREATED)
+        return Response({
+            'message': 'Registration successful. An OTP has been sent to your phone number.',
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'user_type': user.user_type,
+                'phone_number': user.phone_number,
+            },
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            },
+            'next_step': 'Verify your phone at POST /api/otp/verify_phone_otp/',
+        }, status=status.HTTP_201_CREATED)
+
 
     @action(detail=False, methods=['post'])
     def login(self, request):
