@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from appone.serializers import OTPValidateSerializer
-from appone.models import OTPVerification
+from appone.models import OTPVerification, User, FreelancerProfile, CompanyProfile
 from appone.utils import generate_otp, send_otp_sms
 from appone.tasks import send_otp_task
 from datetime import timedelta
@@ -92,6 +92,10 @@ class OTPViewSet(viewsets.ViewSet):
             )
 
             otp.is_verified = True
+            FreelancerProfile.phone_verified = True
+            CompanyProfile.phone_verified = True
+            User.phone_verified = True
+
             otp.save()
 
             # Update freelancer profile

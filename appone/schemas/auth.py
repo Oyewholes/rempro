@@ -105,7 +105,7 @@ class RegisterRequestSchema(serializers.ModelSerializer):
                 industry='',
                 company_size='',
             )
-        OTPVerification.objects.create(
+        otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
             otp_type='phone',
@@ -113,7 +113,10 @@ class RegisterRequestSchema(serializers.ModelSerializer):
             expires_at=timezone.now() + timedelta(minutes=10),
         )
 
-        send_otp_task.delay(OTPVerification.id)
+        try:
+            send_otp_task.delay(otp.id)  # async via Celery when broker is running
+        except Exception:
+            send_otp_task(otp.id)
 
         return user
 
