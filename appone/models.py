@@ -4,6 +4,7 @@ from django.core.validators import RegexValidator
 import uuid
 from decimal import Decimal
 
+phone_validator = RegexValidator(regex=r'^\+234\d{10}$', message="Phone must be in format: '+234XXXXXXXXXX'")
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -32,6 +33,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
@@ -55,7 +57,6 @@ class FreelancerProfile(models.Model):
     )
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='freelancer_profile')
-    phone_validator = RegexValidator(regex=r'^\+234\d{10}$', message="Phone must be in format: '+234XXXXXXXXXX'")
     phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
     phone_verified = models.BooleanField(default=False)
 
@@ -140,7 +141,7 @@ class CompanyProfile(models.Model):
     company_registration_number = models.CharField(max_length=100, unique=True)
     country = models.CharField(max_length=100)
     address = models.TextField()
-    phone_number = models.CharField(max_length=20)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
     website = models.URLField(blank=True)
 
     # Verification
@@ -175,7 +176,7 @@ class OTPVerification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     otp_code = models.CharField(max_length=6)
     otp_type = models.CharField(max_length=20, choices=OTP_TYPE_CHOICES)
-    phone_number = models.CharField(max_length=20, blank=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
     email = models.EmailField(blank=True)
     is_verified = models.BooleanField(default=False)
     expires_at = models.DateTimeField()

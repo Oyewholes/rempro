@@ -2,10 +2,13 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+
+from appone.models import OTPVerification
 from appone.serializers import UserRegistrationSerializer, UserLoginSerializer
-from appone.models import FreelancerProfile, CompanyProfile
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
+from appone.schemas import RegisterRequestSchema, LoginRequestSchema
+from appone.tasks import send_otp_task
 
 
 class AuthViewSet(viewsets.ViewSet):
@@ -13,34 +16,41 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'])
     def register(self, request):
-        """Register a new user (freelancer or company)"""
-        serializer = UserRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
+        """
+                Register a new user.
 
-            # Create profile based on user type
-            if user.user_type == 'freelancer':
-                FreelancerProfile.objects.create(user=user)
-            elif user.user_type == 'company':
-                CompanyProfile.objects.create(user=user)
+                Required body:
+                    email, password, password2, user_type, phone_number
 
-            # Generate JWT tokens
-            refresh = RefreshToken.for_user(user)
+                On success:
+                    - Creates User
+                    - Creates FreelancerProfile or CompanyProfile (seeded with phone_number)
+                    - Creates a pending OTPVerification record (phone type)
+                      → call POST /api/otp/send_phone_otp/ next to trigger the SMS
+                """
+        serializer = RegisterRequestSchema(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response({
-                'message': 'Registration successful',
-                'user': {
-                    'id': str(user.id),
-                    'email': user.email,
-                    'user_type': user.user_type
-                },
-                'tokens': {
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token)
-                }
-            }, status=status.HTTP_201_CREATED)
+        request.save()
+        otp_id = OTPVerification.id
+        send_otp_task(otp_id)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        # Generate JWT tokens
+        # refresh = RefreshToken.for_user(user)
+        #
+        # return Response({
+        #     'message': 'Registration successful. Please verify your phone number.',
+        #     'user': {
+        #         'id': str(user.id),
+        #         'email': user.email,
+        #         'user_type': user.user_type,
+        #     },
+        #     'tokens': {
+        #         'refresh': str(refresh),
+        #         'access': str(refresh.access_token),
+        #     },
+        # }, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'])
     def login(self, request):
