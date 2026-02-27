@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'django_filters',
     "appone",
+    'django_extensions',
 
 ]
 
