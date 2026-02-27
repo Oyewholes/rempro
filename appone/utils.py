@@ -6,9 +6,8 @@ from django.conf import settings
 from PIL import Image, ImageDraw, ImageFont
 import io
 from django.core.files.uploadedfile import InMemoryUploadedFile
-import logging
+import cloudinary.uploader
 
-logger = logging.getLogger(__name__)
 
 
 def generate_otp(length=6):
@@ -34,11 +33,9 @@ def send_otp_sms(phone_number, otp_code):
             getattr(settings, 'TWILIO_AUTH_TOKEN', None),
             getattr(settings, 'TWILIO_PHONE_NUMBER', None)
         ]):
-            logger.warning("Twilio credentials not configured in settings")
 
             # In development, just log the OTP
             if settings.DEBUG:
-                logger.info(f"DEV MODE: OTP {otp_code} for {phone_number}")
                 return True
             return False
 
@@ -47,9 +44,7 @@ def send_otp_sms(phone_number, otp_code):
             from twilio.rest import Client
             from twilio.http.http_client import TwilioHttpClient
         except ImportError:
-            logger.error("Twilio library not installed. Run: pip install twilio")
             if settings.DEBUG:
-                logger.info(f"DEV MODE: Would send OTP {otp_code} to {phone_number}")
                 return True
             return False
 
@@ -60,7 +55,6 @@ def send_otp_sms(phone_number, otp_code):
         # WARNING: Never do this in production!
         if settings.DEBUG and hasattr(http_client, 'session'):
             http_client.session.verify = False
-            logger.debug("SSL verification disabled for development")
 
         # Create Twilio client
         client = Client(
@@ -78,16 +72,10 @@ def send_otp_sms(phone_number, otp_code):
             to=phone_number
         )
 
-        logger.info(f"SMS sent successfully to {phone_number}, SID: {message.sid}")
         return True
 
     except Exception as e:
-        logger.error(f"Failed to send SMS to {phone_number}: {str(e)}", exc_info=True)
-
-        # In development mode, log the OTP so testing can continue
         if settings.DEBUG:
-            logger.info(f"DEV MODE: OTP code is {otp_code}")
-            # Consider this a "success" in dev mode so app can continue
             return True
 
         return False
@@ -114,7 +102,6 @@ def send_otp_sms_africas_talking(phone_number, otp_code):
         response = requests.post(url, headers=headers, data=data)
         return response.status_code == 200
     except Exception as e:
-        print(f"Error sending SMS: {e}")
         return False
 
 
@@ -144,7 +131,6 @@ def send_otp_email(email, otp_code, otp_type='verification'):
         )
         return True
     except Exception as e:
-        print(f"Error sending email: {e}")
         return False
 
 
@@ -192,6 +178,30 @@ def send_otp(contact_info, otp_code, method='auto'):
 
     return False, 'failed'
 
+def upload_cv_to_cloudinary(file, freelancer_id):
+    """
+    Upload a CV file to Cloudinary and return the secure URL.
+
+    Args:
+        file: The uploaded file object
+        freelancer_id: Used to create a unique public_id
+
+    Returns:
+        str: The Cloudinary secure URL, or None on failure
+    """
+    try:
+        result = cloudinary.uploader.upload(
+            file,
+            folder="virtual_citizenship/cvs",
+            public_id=f"cv_{freelancer_id}",
+            resource_type="raw",
+            allowed_formats=["pdf", "doc", "docx"],
+            overwrite=True,
+        )
+        return result['secure_url']
+
+    except Exception as e:
+        return None
 
 def verify_nigerian_nin(nin):
     """

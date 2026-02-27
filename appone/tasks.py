@@ -1,7 +1,6 @@
 from celery import shared_task
 from django.utils import timezone
 from datetime import timedelta
-import logging
 from .models import (
     FreelancerProfile, CompanyProfile, OTPVerification,
     Payment, Message, Contract
@@ -11,8 +10,8 @@ from .utils import (
     verify_company_registration, generate_digital_id_card,
     send_notification_email, process_paystack_payment
 )
-
-logger = logging.getLogger(__name__)
+import os
+from .utils import upload_cv_to_cloudinary, send_notification_email
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def send_otp_task(self, otp_id):
@@ -30,37 +29,27 @@ def send_otp_task(self, otp_id):
 
         # Check if OTP is still valid
         if otp.is_verified:
-            logger.info(f"OTP {otp_id} already verified, skipping send")
             return{'success': True, 'message': 'OTP already verified'}
 
         if otp.expires_at < timezone.now():
-            logger.warning(f"OTP {otp_id} expired, not sending")
             return {'success': False, 'message': 'OTP expired'}
-        # Send based on type
         success = False
 
         if otp.otp_type == 'phone':
-            logger.info(f"Sending phone OTP to {otp.phone_number}")
             success = send_otp_sms(otp.phone_number, otp.otp_code)
         elif otp.otp_type in ['company_access', 'profile_access']:
-            logger.info(f"Sending email OTP to {otp.email}")
             success = send_otp_email(otp.email, otp.otp_code, otp.otp_type)
 
         else:
-            logger.error(f"Unknown OTP type: {otp.otp_type}")
             return {'success': False, 'error': 'Unknown OTP type'}
 
         if success:
-            logger.info(f"OTP {otp_id} sent successfully")
             return {
                 'success': True,
                 'otp_id': str(otp_id),
                 'otp_type': otp.otp_type
             }
         else:
-            # Retry the task if sending failed
-            logger.warning(f"Failed to send OTP {otp_id}, attempt {self.request.retries + 1}")
-
             # Only retry if not in final attempt
             if self.request.retries < self.max_retries:
                 raise self.retry(exc=Exception("SMS/Email sending failed"))
@@ -71,18 +60,56 @@ def send_otp_task(self, otp_id):
             }
 
     except OTPVerification.DoesNotExist:
-        logger.error(f"OTP {otp_id} not found")
         return {'success': False, 'error': 'OTP not found'}
 
     except Exception as e:
-        logger.error(f"Error in send_otp_task: {str(e)}", exc_info=True)
 
         # Retry on unexpected errors
         if self.request.retries < self.max_retries:
             raise self.retry(exc=e)
-
         return {'success': False, 'error': str(e)}
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def upload_cv_to_cloudinary_task(self, profile_id, file_path):
+    """
+    Async task to upload a CV to Cloudinary and save the URL to the profile.
+
+    Args:
+        profile_id: FreelancerProfile primary key
+        file_path: Absolute path to the temporarily saved file
+    """
+    try:
+        profile = FreelancerProfile.objects.get(id=profile_id)
+
+        with open(file_path, 'rb') as f:
+            url = upload_cv_to_cloudinary(f, profile.digital_id)
+
+        if not url:
+            raise Exception("Cloudinary returned no URL")
+
+        profile.cv_file = url          # Store the Cloudinary URL as a string
+        profile.save(update_fields=['cv_file'])
+        profile.calculate_profile_completion()
+
+        # Clean up temp file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        # send_notification_email(
+        #     profile.user.email,
+        #     "CV Uploaded Successfully",
+        #     f"Dear {profile.first_name}, your CV has been uploaded successfully."
+        # )
+
+        return {'success': True, 'cv_url': url}
+
+    except FreelancerProfile.DoesNotExist:
+        return {'success': False, 'error': 'Profile not found'}
+
+    except Exception as e:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+        return {'success': False, 'error': str(e)}
 
 @shared_task
 def verify_nin_task(profile_id):
@@ -108,7 +135,6 @@ def verify_nin_task(profile_id):
         return {'success': True, 'verified': result.get('verified', False)}
     except FreelancerProfile.DoesNotExist:
         return {'success': False, 'error': 'Profile not found'}
-
 
 @shared_task
 def verify_company_registration_task(company_id):
