@@ -2,13 +2,9 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-
-from appone.models import OTPVerification
-from appone.serializers import UserRegistrationSerializer, UserLoginSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from appone.schemas import RegisterRequestSchema, LoginRequestSchema
-from appone.tasks import send_otp_task
+from appone.serializer import RegisterSerializer, LoginSerializer
 
 
 class AuthViewSet(viewsets.ViewSet):
@@ -28,7 +24,7 @@ class AuthViewSet(viewsets.ViewSet):
                     - Creates a pending OTPVerification record (phone type)
                       → call POST /api/otp/send_phone_otp/ next to trigger the SMS
                 """
-        serializer = RegisterRequestSchema(data=request.data)
+        serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -54,7 +50,7 @@ class AuthViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def login(self, request):
         """Login user"""
-        serializer = UserLoginSerializer(data=request.data)
+        serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.validated_data['user']
 

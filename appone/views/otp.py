@@ -92,19 +92,27 @@ class OTPViewSet(viewsets.ViewSet):
             )
 
             otp.is_verified = True
-            FreelancerProfile.phone_verified = True
-            CompanyProfile.phone_verified = True
-            User.phone_verified = True
-
             otp.save()
+            user = request.user
 
-            # Update freelancer profile
-            if hasattr(request.user, 'freelancer_profile'):
-                profile = request.user.freelancer_profile
+            # Update User.phone_verified
+            user.phone_verified = True
+            user.save(update_fields=['phone_verified'])
+
+            # Update FreelancerProfile
+            if hasattr(user, 'freelancer_profile'):
+                profile = user.freelancer_profile
                 profile.phone_number = otp.phone_number
                 profile.phone_verified = True
-                profile.save()
+                profile.save(update_fields=['phone_number', 'phone_verified'])
                 profile.calculate_profile_completion()
+
+            # Update CompanyProfile
+            elif hasattr(user, 'company_profile'):
+                company = user.company_profile
+                company.phone_number = otp.phone_number
+                company.phone_verified = True
+                company.save(update_fields=['phone_number', 'phone_verified'])
 
             return Response({
                 'message': 'Phone verified successfully'

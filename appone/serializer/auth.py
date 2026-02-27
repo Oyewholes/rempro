@@ -9,8 +9,7 @@ from datetime import timedelta
 from appone.tasks import send_otp_task
 
 
-
-class RegisterRequestSchema(serializers.ModelSerializer):
+class RegisterSerializer(serializers.ModelSerializer):
     """
     Validates and creates a new user on registration.
 
@@ -88,28 +87,26 @@ class RegisterRequestSchema(serializers.ModelSerializer):
         if user.user_type == 'freelancer':
             FreelancerProfile.objects.create(
                 user=user,
-                first_name = '',
-                last_name = '',
-                nin = '',
+                phone_number=user.phone_number
+            )
+
+        elif user.user_type == 'admin':
+            User.objects.update(
+                is_staff = True
             )
 
         elif user.user_type == 'company':
             CompanyProfile.objects.create(
                 user=user,
                 phone_number = user.phone_number,
-                company_name='',
                 company_email=user.email,
-                company_registration_number='',
-                country='',
-                address='',
-                industry='',
-                company_size='',
             )
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
             otp_type='phone',
             phone_number=user.phone_number,
+            email = user.email,
             expires_at=timezone.now() + timedelta(minutes=10),
         )
 
@@ -121,7 +118,7 @@ class RegisterRequestSchema(serializers.ModelSerializer):
         return user
 
 
-class LoginRequestSchema(serializers.Serializer):
+class LoginSerializer(serializers.Serializer):
     """
     Validates login credentials.
     On success, the authenticated User instance is available at validated_data['user'].
