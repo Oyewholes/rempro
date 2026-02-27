@@ -1,7 +1,8 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import path, include
+from appone.view import AuthViewSet, OTPViewSet
 from .views import (
-    AuthViewSet, OTPViewSet, FreelancerProfileViewSet,
+    FreelancerProfileViewSet,
     CompanyProfileViewSet, JobPostingViewSet, JobApplicationViewSet,
     ContractViewSet, PaymentViewSet, WorkspaceViewSet,
     TaskViewSet, MessageViewSet, AdminViewSet

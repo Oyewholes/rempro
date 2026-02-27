@@ -1,227 +1,24 @@
-from rest_framework import viewsets, status, generics
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework import viewsets, status, serializers
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from datetime import timedelta
-import random
-import re
 
 from .models import (
-    User, FreelancerProfile, CompanyProfile, OTPVerification,
+    FreelancerProfile, CompanyProfile,
     JobPosting, JobApplication, Contract, Payment, Workspace,
     Task, Message, ProfileAccessLog
 )
 from .serializers import (
-    UserRegistrationSerializer, UserLoginSerializer,
-    OTPVerificationSerializer, OTPValidateSerializer,
     FreelancerProfileSerializer, FreelancerProfileUpdateSerializer,
     FreelancerPublicProfileSerializer, CompanyProfileSerializer,
     CompanyProfileUpdateSerializer, JobPostingSerializer,
     JobApplicationSerializer, ContractSerializer, PaymentSerializer,
     WorkspaceSerializer, TaskSerializer, MessageSerializer,
-    ProfileAccessLogSerializer, ScheduleMeetingSerializer,
+    ScheduleMeetingSerializer,
     AdminVerificationSerializer
 )
 from .permissions import IsFreelancer, IsCompany, IsAdmin
-
-
-# Authentication Views
-class AuthViewSet(viewsets.ViewSet):
-    permission_classes = [AllowAny]
-
-    @action(detail=False, methods=['post'])
-    def register(self, request):
-        """Register a new user (freelancer or company)"""
-        serializer = UserRegistrationSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-
-            # Create profile based on user type
-            if user.user_type == 'freelancer':
-                FreelancerProfile.objects.create(user=user)
-            elif user.user_type == 'company':
-                CompanyProfile.objects.create(user=user)
-
-            # Generate JWT tokens
-            refresh = RefreshToken.for_user(user)
-
-            return Response({
-                'message': 'Registration successful',
-                'user': {
-                    'id': str(user.id),
-                    'email': user.email,
-                    'user_type': user.user_type
-                },
-                'tokens': {
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token)
-                }
-            }, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=False, methods=['post'])
-    def login(self, request):
-        """Login user"""
-        serializer = UserLoginSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-
-            # Generate JWT tokens
-            refresh = RefreshToken.for_user(user)
-
-            return Response({
-                'message': 'Login successful',
-                'user': {
-                    'id': str(user.id),
-                    'email': user.email,
-                    'user_type': user.user_type,
-                    'is_verified': user.is_verified
-                },
-                'tokens': {
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token)
-                }
-            }, status=status.HTTP_200_OK)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-# OTP Management Views
-class OTPViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
-
-    @action(detail=False, methods=['post'])
-    def send_phone_otp(self, request):
-        """Send OTP to phone number for verification"""
-        phone_number = request.data.get('phone_number')
-
-        if not phone_number:
-            return Response({'error': 'Phone number is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validate Nigerian phone format
-        if not re.match(r'^\+234\d{10}$', phone_number):
-            return Response({'error': 'Invalid Nigerian phone format. Use +234XXXXXXXXXX'},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        # Generate 6-digit OTP
-        otp_code = str(random.randint(100000, 999999))
-
-        # Create OTP record
-        otp = OTPVerification.objects.create(
-            user=request.user,
-            otp_code=otp_code,
-            otp_type='phone',
-            phone_number=phone_number,
-            expires_at=timezone.now() + timedelta(minutes=10)
-        )
-
-        # TODO: Integrate with SMS service (Twilio, Africa's Talking, etc.)
-        # For now, return OTP in response (ONLY FOR DEVELOPMENT)
-
-        return Response({
-            'message': 'OTP sent successfully',
-            'otp_id': str(otp.id),
-            'expires_at': otp.expires_at,
-            'otp_code': otp_code  # Remove in production
-        }, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['post'])
-    def verify_phone_otp(self, request):
-        """Verify phone OTP"""
-        serializer = OTPValidateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        otp_code = serializer.validated_data['otp_code']
-
-        try:
-            otp = OTPVerification.objects.get(
-                user=request.user,
-                otp_code=otp_code,
-                otp_type='phone',
-                is_verified=False,
-                expires_at__gte=timezone.now()
-            )
-
-            otp.is_verified = True
-            otp.save()
-
-            # Update freelancer profile
-            if hasattr(request.user, 'freelancer_profile'):
-                profile = request.user.freelancer_profile
-                profile.phone_number = otp.phone_number
-                profile.phone_verified = True
-                profile.save()
-                profile.calculate_profile_completion()
-
-            return Response({
-                'message': 'Phone verified successfully'
-            }, status=status.HTTP_200_OK)
-
-        except OTPVerification.DoesNotExist:
-            return Response({'error': 'Invalid or expired OTP'}, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=False, methods=['post'])
-    def send_company_access_otp(self, request):
-        """Send OTP to company email for profile access"""
-        if not hasattr(request.user, 'company_profile'):
-            return Response({'error': 'Only companies can request access OTP'}, status=status.HTTP_403_FORBIDDEN)
-
-        company_profile = request.user.company_profile
-
-        # Generate 6-digit OTP
-        otp_code = str(random.randint(100000, 999999))
-
-        # Create OTP record
-        otp = OTPVerification.objects.create(
-            user=request.user,
-            otp_code=otp_code,
-            otp_type='company_access',
-            email=company_profile.company_email,
-            expires_at=timezone.now() + timedelta(minutes=10)
-        )
-
-        # TODO: Send email with OTP
-
-        return Response({
-            'message': 'OTP sent to company email',
-            'otp_id': str(otp.id),
-            'expires_at': otp.expires_at,
-            'otp_code': otp_code  # Remove in production
-        }, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['post'])
-    def verify_company_access_otp(self, request):
-        """Verify company access OTP"""
-        serializer = OTPValidateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        otp_code = serializer.validated_data['otp_code']
-
-        try:
-            otp = OTPVerification.objects.get(
-                user=request.user,
-                otp_code=otp_code,
-                otp_type='company_access',
-                is_verified=False,
-                expires_at__gte=timezone.now()
-            )
-
-            otp.is_verified = True
-            otp.save()
-
-            return Response({
-                'message': 'Access verified successfully',
-                'access_token': otp_code  # Can be used as temporary access token
-            }, status=status.HTTP_200_OK)
-
-        except OTPVerification.DoesNotExist:
-            return Response({'error': 'Invalid or expired OTP'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # Freelancer Profile Views
