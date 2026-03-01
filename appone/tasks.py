@@ -288,11 +288,9 @@ def cleanup_expired_otps():
         count = expired_otps.count()
         expired_otps.delete()
 
-        logger.info(f"Cleaned up {count} expired OTPs")
         return {'deleted': count}
 
     except Exception as e:
-        logger.error(f"Error cleaning up OTPs: {str(e)}", exc_info=True)
         return {'error': str(e)}
 
 

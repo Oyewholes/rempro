@@ -153,7 +153,6 @@ def send_otp(contact_info, otp_code, method='auto'):
         elif contact_info.startswith('+'):
             method = 'sms'
         else:
-            logger.error(f"Could not detect contact type: {contact_info}")
             return False, 'unknown'
 
     # Try to send based on method
