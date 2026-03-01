@@ -1,3 +1,4 @@
+import os, tempfile
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -8,8 +9,40 @@ from appone.serializers import (
 )
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
-from appone.utils import get_ip_location, upload_cv_to_cloudinary
+from appone.utils import verify_user_is_in_nigeria
 from appone.tasks import upload_cv_to_cloudinary_task
+from RemPro import settings
+
+
+# Allowed MIME types for CV uploads
+_CV_ALLOWED_CONTENT_TYPES = {
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+
+# Map MIME → file extension for the temp file
+_MIME_TO_EXT = {
+    'application/pdf': '.pdf',
+    'application/msword': '.doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+}
+
+CV_MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _get_client_ip(request) -> str:
+    """
+    Resolve the real client IP, honouring X-Forwarded-For when set
+    (standard behind load balancers / proxies).
+    """
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        # The header may be a comma-separated list; the leftmost is the client
+        return x_forwarded_for.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '')
+
+
 
 class FreelancerProfileViewSet(viewsets.ModelViewSet):
     queryset = FreelancerProfile.objects.all()
@@ -49,81 +82,158 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def verify_location(self, request):
-        """Verify user's location via IP address"""
+        """
+        Verify that the freelancer is physically located in Nigeria.
+
+        Flow:
+          1. Resolve the client's real IP (handles proxy / load-balancer
+             X-Forwarded-For headers).
+          2. Call verify_user_is_in_nigeria() which queries ipapi.co with
+             automatic fallback to ip-api.com.
+          3. If the country resolves to NG → mark location_verified = True
+             and save the IP + country_code on the profile.
+          4. If NOT Nigeria → return 403 with the detected country.
+          5. If geolocation fails entirely → return 503 so the client
+             can retry rather than being permanently blocked.
+        """
         try:
             profile = request.user.freelancer_profile
         except FreelancerProfile.DoesNotExist:
             return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        if settings.DEBUG:
+            ip_address = request.data.get('test_ip') #or _get_client_ip(request)
+        else:
+            ip_address = _get_client_ip(request)
 
-        # Get IP address from request
-        ip_address = request.META.get('REMOTE_ADDR')
+        is_nigeria, location_data, message = verify_user_is_in_nigeria(ip_address)
 
-        # TODO: Use IP geolocation service to verify country
-        # For now, just save the IP
+        # ── Geolocation service completely unavailable ─────────────────────
+        if location_data is None:
+            return Response(
+                {
+                    'error': 'Location verification service is temporarily unavailable. '
+                             'Please try again in a few minutes.',
+                    'ip_address': ip_address,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # ── Outside Nigeria ─────────────────────────────────────────────────
+        if not is_nigeria:
+
+            return Response(
+                {
+                    'error': message,
+                    'detected_location': {
+                        'country': location_data.get('country_name'),
+                        'country_code': location_data.get('country_code'),
+                        'city': location_data.get('city'),
+                    },
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # ── Nigeria confirmed ───────────────────────────────────────────────
         profile.ip_address = ip_address
-        ip_location = get_ip_location(ip_address)
-        profile.location_verified = True  # Set to True after actual verification
-        profile.save()
+        profile.country_code = location_data.get('country_code', 'NGA')
+        profile.location_verified = True
+        profile.save(update_fields=['ip_address', 'country_code', 'location_verified'])
         profile.calculate_profile_completion()
 
-        return Response({
-            'message': 'Location verified',
-            'ip_address': ip_address
-        }, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                'message': message,
+                'location': {
+                    'country': location_data.get('country_name'),
+                    'country_code': location_data.get('country_code'),
+                    'city': location_data.get('city'),
+                    'region': location_data.get('region'),
+                },
+                'ip_address': ip_address,
+                'profile_completion': profile.profile_completion_percentage,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=['post'])
     def upload_cv(self, request):
-        """Upload CV file to Cloudinary and save the URL"""
+        """
+               Accept a CV file, validate it, persist it to a temp path on disk,
+               then hand off to upload_cv_to_cloudinary_task for async processing.
+
+               The task:
+                 • Opens the temp file, uploads it to Cloudinary
+                 • Saves the returned secure_url to FreelancerProfile.cv_file
+                 • Recalculates profile completion
+                 • Deletes the temp file
+
+               Response: 202 Accepted immediately so the client is not blocked
+               waiting for Cloudinary's upload round-trip.
+               """
         try:
             profile = request.user.freelancer_profile
         except FreelancerProfile.DoesNotExist:
             return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
 
         cv_file = request.FILES.get('cv_file')
+
+        # ── Basic presence check ────────────────────────────────────────────
         if not cv_file:
             return Response({'error': 'cv_file is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate file type
-        allowed_types = ['application/pdf', 'application/msword',
-                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
-        if cv_file.content_type not in allowed_types:
+        # ── MIME type validation ────────────────────────────────────────────
+        if cv_file.content_type not in _CV_ALLOWED_CONTENT_TYPES:
             return Response(
-                {'error': 'Only PDF, DOC, and DOCX files are allowed'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'Only PDF, DOC, and DOCX files are accepted.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Validate file size (max 10MB)
-        if cv_file.size > 10 * 1024 * 1024:
-            return Response({'error': 'File size must not exceed 10MB'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Option A — synchronous upload (simpler, works without Celery)
-        cv_url = upload_cv_to_cloudinary(cv_file, profile.digital_id)
-
-        if not cv_url:
+        # ── File size validation ────────────────────────────────────────────
+        if cv_file.size > CV_MAX_SIZE_BYTES:
             return Response(
-                {'error': 'Failed to upload CV. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {'error': 'File size must not exceed 10 MB.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        profile.cv_file = cv_url
-        profile.save(update_fields=['cv_file'])
-        profile.calculate_profile_completion()
+        # ── Persist to a named temp file so the Celery worker can open it ──
+        # InMemoryUploadedFile / TemporaryUploadedFile are not serialisable
+        # across process boundaries, so we write the bytes to disk first.
+        ext = _MIME_TO_EXT.get(cv_file.content_type, '.pdf')
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                for chunk in cv_file.chunks():
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+        except OSError as exc:
+            return Response(
+                {'error': 'Server error while preparing upload. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        # Option B — async upload via Celery (uncomment to use instead)
-        # Save file temporarily, then hand off to task
-        # suffix = os.path.splitext(cv_file.name)[1]
-        # with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        #     for chunk in cv_file.chunks():
-        #         tmp.write(chunk)
-        #     tmp_path = tmp.name
-        # upload_cv_to_cloudinary_task.delay(profile.id, tmp_path)
-        # return Response({'message': 'CV upload started. You will be notified when complete.'}, status=status.HTTP_202_ACCEPTED)
+        # ── Dispatch to Celery ──────────────────────────────────────────────
+        try:
+            upload_cv_to_cloudinary_task(str(profile.id), tmp_path)
 
-        return Response({
-            'message': 'CV uploaded successfully',
-            'cv_url': cv_url,
-            'profile_completion': profile.profile_completion_percentage
-        }, status=status.HTTP_200_OK)
+        except Exception as exc:
+            # Celery broker unavailable — clean up and report
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            return Response(
+                {'error': 'Upload queue unavailable. Please try again later.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {
+                'message': (
+                    'Your CV is being processed and will be available shortly. '
+                ),
+                'status': 'processing',
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
 
     @action(detail=False, methods=['post'])
     def upload_live_photo(self, request):

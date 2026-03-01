@@ -8,7 +8,10 @@ import io
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import cloudinary.uploader
 
+NIGERIA_COUNTRY_CODE = 'NG'
+NIGERIA_COUNTRY_NAME = 'Nigeria'
 
+_LOCAL_IP_PREFIXES = ('127.', '192.168.', '10.', '172.', '::1')
 
 def generate_otp(length=6):
     """Generate a random OTP code"""
@@ -179,15 +182,16 @@ def send_otp(contact_info, otp_code, method='auto'):
 
 def upload_cv_to_cloudinary(file, freelancer_id):
     """
-    Upload a CV file to Cloudinary and return the secure URL.
+       Upload a CV file to Cloudinary and return the secure URL.
 
-    Args:
-        file: The uploaded file object
-        freelancer_id: Used to create a unique public_id
+       Args:
+           file:           File-like object (opened in binary mode).
+           freelancer_id:  UUID used as the Cloudinary public_id — ensures
+                           re-uploading overwrites the previous version.
 
-    Returns:
-        str: The Cloudinary secure URL, or None on failure
-    """
+       Returns:
+           str | None: Cloudinary secure_url on success, None on failure.
+       """
     try:
         result = cloudinary.uploader.upload(
             file,
@@ -196,6 +200,7 @@ def upload_cv_to_cloudinary(file, freelancer_id):
             resource_type="raw",
             allowed_formats=["pdf", "doc", "docx"],
             overwrite=True,
+            backup=True,
         )
         return result['secure_url']
 
@@ -259,27 +264,129 @@ def verify_company_registration(registration_number, country):
         return None
 
 
-def get_ip_location(ip_address):
+def get_ip_location(ip_address: str) -> dict | None:
     """
-    Get location information from IP address
-    Using ipapi.co or similar service
+    Resolve a public IP address to location data.
+
+    Strategy:
+        1. Return a dev stub for loopback / private IPs so local testing
+           doesn't fail.
+        2. Try ipapi.co  (1 000 req / day free, no key needed).
+        3. Fall back to ip-api.com (45 req / min free, HTTP only).
+
+    Returns a dict with at least:
+        {
+            'country_code': 'NG',       # ISO-2
+            'country_name': 'Nigeria',
+            'city': '...',
+            'region': '...',
+            'latitude': 6.45,
+            'longitude': 3.39,
+            'is_nigeria': True | False,
+        }
+    or None when both services fail.
     """
+    # ── 1. Dev / private IP fast-path ──────────────────────────────────────
+    # if not ip_address or any(ip_address.startswith(p) for p in _LOCAL_IP_PREFIXES):
+    #     return _build_location_result(
+    #         country_code='NG',
+    #         country_name='Nigeria',
+    #         city='Lagos',
+    #         region='Lagos',
+    #         latitude=6.5244,
+    #         longitude=3.3792,
+    #     )
+
+    # ── 2. Primary: ipapi.co ───────────────────────────────────────────────
     try:
-        response = requests.get(f"https://ipapi.co/{ip_address}/json/")
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                'country_code': data.get('country_code'),
-                'country_name': data.get('country_name'),
-                'city': data.get('city'),
-                'region': data.get('region'),
-                'latitude': data.get('latitude'),
-                'longitude': data.get('longitude')
-            }
+        resp = requests.get(
+            f"https://ipapi.co/{ip_address}/json/",
+            timeout=5,
+            headers={"User-Agent": "VirtualCitizenship/1.0"},
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # ipapi.co returns {'error': True} for reserved / invalid IPs
+            if not data.get('error'):
+                return _build_location_result(
+                    country_code=data.get('country_code', ''),
+                    country_name=data.get('country_name', ''),
+                    city=data.get('city', ''),
+                    region=data.get('region', ''),
+                    latitude=data.get('latitude'),
+                    longitude=data.get('longitude'),
+                )
+    except requests.RequestException as exc:
         return None
-    except Exception as e:
-        print(f"Error getting IP location: {e}")
+    # ── 3. Fallback: ip-api.com (HTTP, no key, 45 req/min) ─────────────────
+    try:
+        resp = requests.get(
+            f"http://ip-api.com/json/{ip_address}?fields=status,country,countryCode,regionName,city,lat,lon",
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get('status') == 'success':
+                return _build_location_result(
+                    country_code=data.get('countryCode', ''),
+                    country_name=data.get('country', ''),
+                    city=data.get('city', ''),
+                    region=data.get('regionName', ''),
+                    latitude=data.get('lat'),
+                    longitude=data.get('lon'),
+                )
+    except requests.RequestException as exc:
         return None
+
+
+def _build_location_result(
+    country_code: str,
+    country_name: str,
+    city: str,
+    region: str,
+    latitude,
+    longitude,
+) -> dict:
+    """Normalise the result dict and add the convenience `is_nigeria` flag."""
+    return {
+        'country_code': country_code,
+        'country_name': country_name,
+        'city': city,
+        'region': region,
+        'latitude': latitude,
+        'longitude': longitude,
+        'is_nigeria': country_code.upper() == NIGERIA_COUNTRY_CODE,
+    }
+
+
+def verify_user_is_in_nigeria(ip_address: str) -> tuple[bool, dict | None, str]:
+    """
+    High-level helper used by the view.
+
+    Returns:
+        (is_verified: bool, location_data: dict | None, reason: str)
+
+    Examples:
+        (True,  {...}, "Location verified: Lagos, Nigeria")
+        (False, {...}, "Access restricted: your location (US) is outside Nigeria")
+        (False, None,  "Unable to determine location. Please try again.")
+    """
+    location = get_ip_location(ip_address)
+
+    if location is None:
+        return False, None, "Unable to determine your location. Please try again later."
+
+    if location['is_nigeria']:
+        msg = f"Location verified: {location['city']}, {location['country_name']}"
+        return True, location, msg
+
+    country = location.get('country_name') or location.get('country_code') or 'Unknown'
+    msg = (
+        f"Access restricted: your detected location ({country}) is outside Nigeria. "
+        "You must be physically located in Nigeria to register."
+    )
+    return False, location, msg
+
 
 
 def generate_digital_id_card(freelancer_profile):
