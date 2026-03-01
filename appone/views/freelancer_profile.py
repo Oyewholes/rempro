@@ -8,8 +8,7 @@ from appone.serializers import (
 )
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
-import os, tempfile
-from appone.utils import upload_cv_to_cloudinary
+from appone.utils import get_ip_location, upload_cv_to_cloudinary
 from appone.tasks import upload_cv_to_cloudinary_task
 
 class FreelancerProfileViewSet(viewsets.ModelViewSet):
@@ -62,6 +61,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
         # TODO: Use IP geolocation service to verify country
         # For now, just save the IP
         profile.ip_address = ip_address
+        ip_location = get_ip_location(ip_address)
         profile.location_verified = True  # Set to True after actual verification
         profile.save()
         profile.calculate_profile_completion()

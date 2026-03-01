@@ -8,10 +8,10 @@ from .models import (
 from .utils import (
     send_otp_sms, send_otp_email, verify_nigerian_nin,
     verify_company_registration, generate_digital_id_card,
-    send_notification_email, process_paystack_payment
+    process_paystack_payment,upload_cv_to_cloudinary,
+send_notification_email
 )
 import os
-from .utils import upload_cv_to_cloudinary, send_notification_email
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def send_otp_task(self, otp_id):
