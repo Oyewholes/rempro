@@ -180,32 +180,35 @@ def send_otp(contact_info, otp_code, method='auto'):
 
     return False, 'failed'
 
-def upload_cv_to_cloudinary(file, freelancer_id):
+def upload_to_cloudinary(file, file_type, freelancer_id):
     """
-       Upload a CV file to Cloudinary and return the secure URL.
+       Upload any file to Cloudinary and return the secure URL.
 
        Args:
-           file:           File-like object (opened in binary mode).
-           freelancer_id:  UUID used as the Cloudinary public_id — ensures
-                           re-uploading overwrites the previous version.
+           file:          File-like object opened in binary mode.
+           file_type:     Used as the public_id prefix and subfolder,
+                          e.g. 'cv', 'live_photo', 'id_card'
+           freelancer_id: UUID that makes the public_id unique per freelancer.
 
        Returns:
-           str | None: Cloudinary secure_url on success, None on failure.
-       """
-    try:
-        result = cloudinary.uploader.upload(
-            file,
-            folder="virtual_citizenship/cvs",
-            public_id=f"cv_{freelancer_id}",
-            resource_type="raw",
-            allowed_formats=["pdf", "doc", "docx"],
-            overwrite=True,
-            backup=True,
-        )
-        return result['secure_url']
+           str: Cloudinary secure_url on success.
 
-    except Exception as e:
-        return None
+       Raises:
+           Exception: Propagates Cloudinary errors — never swallows silently.
+       """
+
+    resource_type = "image" if file_type in ("live_photo", "id_card") else "raw"
+
+
+    result = cloudinary.uploader.upload(
+        file,
+        folder=f"virtual_citizenship/{file_type}s",
+        public_id=f"{file_type}_{freelancer_id}",
+        resource_type=resource_type,
+        overwrite=True,
+    )
+    return result['secure_url']
+
 
 def verify_nigerian_nin(nin):
     """

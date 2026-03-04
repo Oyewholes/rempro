@@ -10,7 +10,7 @@ from appone.serializers import (
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
 from appone.utils import verify_user_is_in_nigeria
-from appone.tasks import upload_cv_to_cloudinary_task
+from appone.tasks import upload_to_cloudinary_task
 from RemPro import settings
 
 
@@ -27,6 +27,69 @@ _MIME_TO_EXT = {
     'application/msword': '.doc',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
 }
+
+
+def _handle_file_upload(self, request, file_key, file_type, profile_field, allowed_types):
+    """
+    Shared upload logic: validate → write temp file → dispatch Celery task.
+
+    Args:
+        file_key:      The key in request.FILES, e.g. 'cv_file'
+        file_type:     Passed to the task for Cloudinary folder/public_id
+        profile_field: The FreelancerProfile field to update with the URL
+        allowed_types: Set of accepted MIME type strings
+    """
+    try:
+        profile = request.user.freelancer_profile
+    except FreelancerProfile.DoesNotExist:
+        return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    uploaded_file = request.FILES.get(file_key)
+    if not uploaded_file:
+        return Response({'error': f'{file_key} is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if uploaded_file.content_type not in allowed_types:
+        return Response(
+            {'error': f'Invalid file type. Accepted: {", ".join(allowed_types)}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if uploaded_file.size > CV_MAX_SIZE_BYTES:
+        return Response(
+            {'error': 'File size must not exceed 10 MB.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Derive extension from MIME type, fallback to original filename extension
+    ext = _MIME_TO_EXT.get(uploaded_file.content_type) or \
+          os.path.splitext(uploaded_file.name)[1] or '.bin'
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            for chunk in uploaded_file.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+    except OSError:
+        return Response(
+            {'error': 'Server error while preparing upload. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    try:
+        upload_to_cloudinary_task.delay(str(profile.id), tmp_path, file_type, profile_field)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return Response(
+            {'error': 'Upload queue unavailable. Please try again later.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    return Response(
+        {'message': f'Your {file_type.replace("_", " ")} is being processed and will be available shortly.'},
+        status=status.HTTP_202_ACCEPTED,
+    )
+
 
 CV_MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -158,103 +221,22 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def upload_cv(self, request):
-        """
-               Accept a CV file, validate it, persist it to a temp path on disk,
-               then hand off to upload_cv_to_cloudinary_task for async processing.
-
-               The task:
-                 • Opens the temp file, uploads it to Cloudinary
-                 • Saves the returned secure_url to FreelancerProfile.cv_file
-                 • Recalculates profile completion
-                 • Deletes the temp file
-
-               Response: 202 Accepted immediately so the client is not blocked
-               waiting for Cloudinary's upload round-trip.
-               """
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        cv_file = request.FILES.get('cv_file')
-
-        # ── Basic presence check ────────────────────────────────────────────
-        if not cv_file:
-            return Response({'error': 'cv_file is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # ── MIME type validation ────────────────────────────────────────────
-        if cv_file.content_type not in _CV_ALLOWED_CONTENT_TYPES:
-            return Response(
-                {'error': 'Only PDF, DOC, and DOCX files are accepted.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ── File size validation ────────────────────────────────────────────
-        if cv_file.size > CV_MAX_SIZE_BYTES:
-            return Response(
-                {'error': 'File size must not exceed 10 MB.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ── Persist to a named temp file so the Celery worker can open it ──
-        # InMemoryUploadedFile / TemporaryUploadedFile are not serialisable
-        # across process boundaries, so we write the bytes to disk first.
-        ext = _MIME_TO_EXT.get(cv_file.content_type, '.pdf')
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                for chunk in cv_file.chunks():
-                    tmp.write(chunk)
-                tmp_path = tmp.name
-        except OSError as exc:
-            return Response(
-                {'error': 'Server error while preparing upload. Please try again.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # ── Dispatch to Celery ──────────────────────────────────────────────
-        try:
-            upload_cv_to_cloudinary_task(str(profile.id), tmp_path)
-
-        except Exception as exc:
-            # Celery broker unavailable — clean up and report
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            return Response(
-                {'error': 'Upload queue unavailable. Please try again later.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        return Response(
-            {
-                'message': (
-                    'Your CV is being processed and will be available shortly. '
-                ),
-                'status': 'processing',
-            },
-            status=status.HTTP_202_ACCEPTED,
+        return _handle_file_upload(
+            self, request,
+            file_key='cv_file',
+            file_type='cv',
+            profile_field='cv_file_url',
+            allowed_types=_CV_ALLOWED_CONTENT_TYPES,
         )
-
-
     @action(detail=False, methods=['post'])
     def upload_live_photo(self, request):
-        """Upload live photo taken from camera"""
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
-
-        live_photo = request.FILES.get('live_photo')
-        if not live_photo:
-            return Response({'error': 'Live photo is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        profile.live_photo = live_photo
-        profile.save()
-        profile.calculate_profile_completion()
-
-        return Response({
-            'message': 'Live photo uploaded successfully',
-            'photo_url': profile.live_photo.url
-        }, status=status.HTTP_200_OK)
+        return _handle_file_upload(
+            self, request,
+            file_key='live_photo',
+            file_type='live_photo',
+            profile_field='live_photo_url',
+            allowed_types={'image/jpeg', 'image/png'},
+        )
 
     @action(detail=False, methods=['post'])
     def add_nin(self, request):
