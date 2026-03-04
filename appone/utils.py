@@ -209,7 +209,6 @@ def upload_to_cloudinary(file, file_type, freelancer_id):
     )
     return result['secure_url']
 
-
 def verify_nigerian_nin(nin):
     """
     Verify Nigerian NIN with government API
@@ -233,7 +232,6 @@ def verify_nigerian_nin(nin):
     except Exception as e:
         print(f"Error verifying NIN: {e}")
         return None
-
 
 def verify_company_registration(registration_number, country):
     """
