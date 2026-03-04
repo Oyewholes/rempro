@@ -225,7 +225,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
             self, request,
             file_key='cv_file',
             file_type='cv',
-            profile_field='cv_file_url',
+            profile_field='cv_file',
             allowed_types=_CV_ALLOWED_CONTENT_TYPES,
         )
     @action(detail=False, methods=['post'])
@@ -234,7 +234,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
             self, request,
             file_key='live_photo',
             file_type='live_photo',
-            profile_field='live_photo_url',
+            profile_field='live_photo',
             allowed_types={'image/jpeg', 'image/png'},
         )
 
