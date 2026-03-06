@@ -33,7 +33,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False, blank=True)
     phone_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -58,7 +58,7 @@ class FreelancerProfile(models.Model):
     )
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='freelancer_profile')
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False, blank=True)
     phone_verified = models.BooleanField(default=False)
 
     # Personal Information
@@ -72,8 +72,8 @@ class FreelancerProfile(models.Model):
     location_verified = models.BooleanField(default=False)
 
     # Documents
-    cv_file = models.FileField(upload_to='cvs/', null=True, blank=True)
-    live_photo = models.ImageField(upload_to='live_photos/', null=True, blank=True)
+    cv_file = models.URLField(null=True, blank=True)
+    live_photo = models.URLField(null=True, blank=True)
     portfolio_files = models.JSONField(default=list, blank=True)
 
     # Digital Identity
@@ -142,7 +142,7 @@ class CompanyProfile(models.Model):
     company_registration_number = models.CharField(max_length=100, unique=False, blank=True)
     country = models.CharField(max_length=100, blank=True)
     address = models.TextField(blank=True)
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True, blank=True)
     website = models.URLField(blank=True)
 
     # Verification

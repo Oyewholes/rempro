@@ -8,7 +8,7 @@ from .models import (
 from .utils import (
     send_otp_sms, send_otp_email, verify_nigerian_nin,
     verify_company_registration, generate_digital_id_card,
-    process_paystack_payment,upload_cv_to_cloudinary,
+    process_paystack_payment,upload_to_cloudinary,
 send_notification_email
 )
 import os
@@ -70,25 +70,26 @@ def send_otp_task(self, otp_id):
         return {'success': False, 'error': str(e)}
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def upload_cv_to_cloudinary_task(self, profile_id, file_path):
+def upload_to_cloudinary_task(self, profile_id, file_path, file_type, profile_field):
     """
-    Async task to upload a CV to Cloudinary and save the URL to the profile.
+       Generic async task to upload any file to Cloudinary and save the URL
+       to the specified field on FreelancerProfile.
 
-    Args:
-        profile_id: FreelancerProfile primary key
-        file_path: Absolute path to the temporarily saved file
-    """
+       Args:
+           profile_id:    FreelancerProfile primary key (string)
+           file_path:     Absolute path to the temp file on disk
+           file_type:     Cloudinary public_id prefix, e.g. 'cv', 'live_photo', 'id_card'
+           profile_field: The FreelancerProfile field to save the URL to,
+                          e.g. 'cv_file', 'live_photo', 'id_card_image'
+       """
     try:
         profile = FreelancerProfile.objects.get(id=profile_id)
 
         with open(file_path, 'rb') as f:
-            url = upload_cv_to_cloudinary(f, profile.digital_id)
+            url = upload_to_cloudinary(f, file_type, profile.id)
 
-        if not url:
-            raise Exception("Cloudinary returned no URL")
-
-        profile.cv_file = url          # Store the Cloudinary URL as a string
-        profile.save(update_fields=['cv_file'])
+        setattr(profile, profile_field, url)
+        profile.save(update_fields=[profile_field])
         profile.calculate_profile_completion()
 
         # Clean up temp file
@@ -101,15 +102,19 @@ def upload_cv_to_cloudinary_task(self, profile_id, file_path):
         #     f"Dear {profile.first_name}, your CV has been uploaded successfully."
         # )
 
-        return {'success': True, 'cv_url': url}
+        return {'success': True, 'url': url, 'field': profile_field}
 
     except FreelancerProfile.DoesNotExist:
+        if os.path.exists(file_path):
+            os.remove(file_path)
         return {'success': False, 'error': 'Profile not found'}
 
-    except Exception as e:
+    except Exception as exc:
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=e)
-        return {'success': False, 'error': str(e)}
+            raise self.retry(exc=exc)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return {'success': False, 'error': str(exc)}
 
 @shared_task
 def verify_nin_task(profile_id):
