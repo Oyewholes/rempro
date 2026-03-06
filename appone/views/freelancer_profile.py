@@ -8,6 +8,8 @@ from appone.serializers import (
 )
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
+from appone.utils import get_ip_location, upload_cv_to_cloudinary
+from appone.tasks import upload_cv_to_cloudinary_task
 
 class FreelancerProfileViewSet(viewsets.ModelViewSet):
     queryset = FreelancerProfile.objects.all()
@@ -59,6 +61,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
         # TODO: Use IP geolocation service to verify country
         # For now, just save the IP
         profile.ip_address = ip_address
+        ip_location = get_ip_location(ip_address)
         profile.location_verified = True  # Set to True after actual verification
         profile.save()
         profile.calculate_profile_completion()
@@ -70,7 +73,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def upload_cv(self, request):
-        """Upload CV file"""
+        """Upload CV file to Cloudinary and save the URL"""
         try:
             profile = request.user.freelancer_profile
         except FreelancerProfile.DoesNotExist:
@@ -78,15 +81,48 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
         cv_file = request.FILES.get('cv_file')
         if not cv_file:
-            return Response({'error': 'CV file is required'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'cv_file is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        profile.cv_file = cv_file
-        profile.save()
+        # Validate file type
+        allowed_types = ['application/pdf', 'application/msword',
+                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+        if cv_file.content_type not in allowed_types:
+            return Response(
+                {'error': 'Only PDF, DOC, and DOCX files are allowed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate file size (max 10MB)
+        if cv_file.size > 10 * 1024 * 1024:
+            return Response({'error': 'File size must not exceed 10MB'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Option A — synchronous upload (simpler, works without Celery)
+        cv_url = upload_cv_to_cloudinary(cv_file, profile.digital_id)
+
+        if not cv_url:
+            return Response(
+                {'error': 'Failed to upload CV. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        profile.cv_file = cv_url
+        profile.save(update_fields=['cv_file'])
         profile.calculate_profile_completion()
+
+        # Option B — async upload via Celery (uncomment to use instead)
+        # Save file temporarily, then hand off to task
+        # suffix = os.path.splitext(cv_file.name)[1]
+        # with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        #     for chunk in cv_file.chunks():
+        #         tmp.write(chunk)
+        #     tmp_path = tmp.name
+        # upload_cv_to_cloudinary_task.delay(profile.id, tmp_path)
+        # return Response({'message': 'CV upload started. You will be notified when complete.'}, status=status.HTTP_202_ACCEPTED)
 
         return Response({
             'message': 'CV uploaded successfully',
-            'cv_url': profile.cv_file.url
+            'cv_url': cv_url,
+            'profile_completion': profile.profile_completion_percentage
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
