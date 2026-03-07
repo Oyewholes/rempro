@@ -14,6 +14,27 @@ NIGERIA_COUNTRY_NAME = "Nigeria"
 _LOCAL_IP_PREFIXES = ("127.", "192.168.", "10.", "172.", "::1")
 
 
+def _fetch_image_from_url(url: str) -> Image.Image | None:
+    """
+    Download an image from a URL and return a PIL Image.
+    Returns None on any failure so callers can degrade gracefully.
+    """
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        return Image.open(io.BytesIO(resp.content)).convert("RGB")
+    except Exception as exc:
+        logger.warning("ID card: could not fetch live photo from %s — %s", url, exc)
+        return None
+
+
+def _make_circle_mask(size: tuple[int, int]) -> Image.Image:
+    """Return a white-on-black circular mask for the given (width, height)."""
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, size[0] - 1, size[1] - 1), fill=255)
+    return mask
+
 def generate_otp(length=6):
     """Generate a random OTP code"""
     return "".join(random.choices(string.digits, k=length))
@@ -391,100 +412,149 @@ def verify_user_is_in_nigeria(ip_address: str) -> tuple[bool, dict | None, str]:
 
 def generate_digital_id_card(freelancer_profile):
     """
-    Generate a digital ID card image for the freelancer
+    Generate a digital ID card image for the freelancer.
+
+    Improvements over the original:
+    - Fetches the freelancer's live photo from its Cloudinary URL and
+      composites it onto the card as a circular avatar.
+    - Returns a raw ``io.BytesIO`` (PNG bytes) instead of an
+      ``InMemoryUploadedFile``, so the caller can pass it straight to
+      ``upload_to_cloudinary`` without any extra wrapping.
+    - Falls back gracefully when the live photo is unavailable.
+
+    Returns:
+        io.BytesIO with PNG data on success, or None on failure.
     """
     try:
-        # Create image
-        width, height = 600, 400
-        img = Image.new("RGB", (width, height), color="#1a1a2e")
+        # ── Canvas ────────────────────────────────────────────────────────
+        WIDTH, HEIGHT = 700, 420
+        DARK_BG = "#1a1a2e"
+        HEADER_BG = "#16213e"
+        ACCENT = "#00d9ff"
+        WHITE = "#ffffff"
+        GREY = "#a0a0b0"
+
+        img = Image.new("RGB", (WIDTH, HEIGHT), color=DARK_BG)
         draw = ImageDraw.Draw(img)
 
-        # Try to load a font, fallback to default if not available
+        # ── Fonts ─────────────────────────────────────────────────────────
         try:
-            title_font = ImageFont.truetype("arial.ttf", 24)
-            text_font = ImageFont.truetype("arial.ttf", 18)
-            small_font = ImageFont.truetype("arial.ttf", 14)
-        except:
-            title_font = ImageFont.load_default()
-            text_font = ImageFont.load_default()
-            small_font = ImageFont.load_default()
+            font_title = ImageFont.truetype("arial.ttf", 22)
+            font_sub = ImageFont.truetype("arial.ttf", 13)
+            font_label = ImageFont.truetype("arial.ttf", 14)
+            font_value = ImageFont.truetype("arial.ttf", 16)
+            font_small = ImageFont.truetype("arial.ttf", 12)
+        except OSError:
+            font_title = font_sub = font_label = font_value = font_small = (
+                ImageFont.load_default()
+            )
 
-        # Draw header
-        draw.rectangle([(0, 0), (width, 80)], fill="#16213e")
-        draw.text((20, 25), "VIRTUAL CITIZENSHIP", fill="#00d9ff", font=title_font)
-        draw.text((20, 55), "Digital Work Permit", fill="#ffffff", font=small_font)
+        # ── Header bar ────────────────────────────────────────────────────
+        draw.rectangle([(0, 0), (WIDTH, 72)], fill=HEADER_BG)
+        draw.text((20, 16), "VIRTUAL CITIZENSHIP", fill=ACCENT, font=font_title)
+        draw.text((20, 48), "Digital Work Permit", fill=WHITE, font=font_sub)
 
-        # Draw profile section
-        y_offset = 120
+        # Thin accent line below header
+        draw.rectangle([(0, 72), (WIDTH, 75)], fill=ACCENT)
 
-        # Name
-        draw.text((20, y_offset), "Name:", fill="#00d9ff", font=text_font)
-        draw.text(
-            (150, y_offset),
-            f"{freelancer_profile.first_name} {freelancer_profile.last_name}",
-            fill="#ffffff",
-            font=text_font,
-        )
+        # ── Live photo (circular avatar) ──────────────────────────────────
+        PHOTO_SIZE = 110  # diameter
+        PHOTO_X = WIDTH - PHOTO_SIZE - 30
+        PHOTO_Y = 90
+        BORDER_PAD = 4  # coloured ring around the circle
 
-        # Digital ID
-        y_offset += 40
-        draw.text((20, y_offset), "Digital ID:", fill="#00d9ff", font=text_font)
-        draw.text(
-            (150, y_offset),
-            str(freelancer_profile.digital_id),
-            fill="#ffffff",
-            font=small_font,
-        )
+        live_photo_loaded = False
+        if freelancer_profile.live_photo:
+            raw_photo = _fetch_image_from_url(freelancer_profile.live_photo)
+            if raw_photo:
+                # Crop to square, then resize to target
+                raw_photo = ImageOps.fit(
+                    raw_photo,
+                    (PHOTO_SIZE, PHOTO_SIZE),
+                    method=Image.LANCZOS,
+                )
+                # Draw accent-coloured border circle behind photo
+                draw.ellipse(
+                    [
+                        PHOTO_X - BORDER_PAD,
+                        PHOTO_Y - BORDER_PAD,
+                        PHOTO_X + PHOTO_SIZE + BORDER_PAD,
+                        PHOTO_Y + PHOTO_SIZE + BORDER_PAD,
+                    ],
+                    fill=ACCENT,
+                )
+                # Composite with circular mask
+                mask = _make_circle_mask((PHOTO_SIZE, PHOTO_SIZE))
+                img.paste(raw_photo, (PHOTO_X, PHOTO_Y), mask)
+                live_photo_loaded = True
 
-        # Status
-        y_offset += 40
-        draw.text((20, y_offset), "Status:", fill="#00d9ff", font=text_font)
-        status_color = (
-            "#00ff00"
-            if freelancer_profile.verification_status == "verified"
-            else "#ff9900"
-        )
-        draw.text(
-            (150, y_offset),
-            freelancer_profile.verification_status.upper(),
-            fill=status_color,
-            font=text_font,
-        )
+        if not live_photo_loaded:
+            # Placeholder silhouette circle
+            draw.ellipse(
+                [PHOTO_X, PHOTO_Y, PHOTO_X + PHOTO_SIZE, PHOTO_Y + PHOTO_SIZE],
+                fill=HEADER_BG,
+                outline=ACCENT,
+                width=2,
+            )
+            draw.text(
+                (PHOTO_X + PHOTO_SIZE // 2 - 20, PHOTO_Y + PHOTO_SIZE // 2 - 8),
+                "NO PHOTO",
+                fill=GREY,
+                font=font_small,
+            )
 
-        # Approved Countries
+        # ── Info fields ───────────────────────────────────────────────────
+        TEXT_X = 30
+        TEXT_RIGHT = PHOTO_X - 20  # stay left of the photo
+        y = 95
+        LINE_GAP = 38
+
+        def draw_field(label: str, value: str, y_pos: int):
+            draw.text((TEXT_X, y_pos), label, fill=ACCENT, font=font_label)
+            draw.text((TEXT_X, y_pos + 16), value, fill=WHITE, font=font_value)
+
+        full_name = f"{freelancer_profile.first_name} {freelancer_profile.last_name}".strip()
+        draw_field("Full Name", full_name or "—", y)
+        y += LINE_GAP + 6
+
+        draw_field("Digital ID", str(freelancer_profile.digital_id), y)
+        y += LINE_GAP + 6
+
+        status_label = freelancer_profile.verification_status.upper()
+        status_color = "#00ff88" if freelancer_profile.verification_status == "verified" else "#ff9900"
+        draw.text((TEXT_X, y), "Status", fill=ACCENT, font=font_label)
+        draw.text((TEXT_X, y + 16), status_label, fill=status_color, font=font_value)
+        y += LINE_GAP + 6
+
         if freelancer_profile.approved_countries:
-            y_offset += 40
-            draw.text((20, y_offset), "Approved for:", fill="#00d9ff", font=text_font)
-            countries = ", ".join(freelancer_profile.approved_countries[:3])
-            draw.text((150, y_offset), countries, fill="#ffffff", font=small_font)
+            countries = ", ".join(freelancer_profile.approved_countries[:4])
+            draw_field("Approved For", countries, y)
+            y += LINE_GAP + 6
 
-        # Footer
-        draw.rectangle([(0, height - 60), (width, height)], fill="#16213e")
+        if freelancer_profile.skills:
+            skills_str = ", ".join(str(s) for s in freelancer_profile.skills[:5])
+            # Truncate if too wide
+            if len(skills_str) > 45:
+                skills_str = skills_str[:42] + "…"
+            draw_field("Skills", skills_str, y)
+
+        # ── Footer bar ────────────────────────────────────────────────────
+        draw.rectangle([(0, HEIGHT - 48), (WIDTH, HEIGHT)], fill=HEADER_BG)
         draw.text(
-            (20, height - 40),
-            "Verified Virtual Work Permit",
-            fill="#ffffff",
-            font=small_font,
+            (20, HEIGHT - 32),
+            "Issued by Virtual Citizenship Platform  |  virtualcitizenship.com",
+            fill=GREY,
+            font=font_small,
         )
 
-        # Save to bytes
-        img_io = io.BytesIO()
-        img.save(img_io, format="PNG")
-        img_io.seek(0)
+        # ── Serialise to PNG bytes ─────────────────────────────────────────
+        output = io.BytesIO()
+        img.save(output, format="PNG", optimize=True)
+        output.seek(0)
+        return output
 
-        # Create InMemoryUploadedFile
-        img_file = InMemoryUploadedFile(
-            img_io,
-            None,
-            f"id_card_{freelancer_profile.digital_id}.png",
-            "image/png",
-            img_io.getbuffer().nbytes,
-            None,
-        )
-
-        return img_file
-    except Exception as e:
-        print(f"Error generating ID card: {e}")
+    except Exception as exc:
+        logger.error("generate_digital_id_card failed for profile %s: %s", freelancer_profile.id, exc)
         return None
 
 

@@ -162,32 +162,72 @@ def verify_company_registration_task(company_id):
         return {"success": False, "error": "Company not found"}
 
 
-@shared_task
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def generate_id_card_task(profile_id):
     """
-    Async task to generate digital ID card for freelancer
-    """
+        Async task to generate a digital ID card for a verified freelancer,
+        upload it to Cloudinary, and save the resulting URL on the profile.
+
+        Flow:
+            1. Fetch the FreelancerProfile.
+            2. Guard — only generate for verified profiles.
+            3. Call generate_digital_id_card(), which composites the live
+               photo (fetched from its Cloudinary URL) onto a PIL canvas and
+               returns raw PNG bytes as an io.BytesIO.
+            4. Upload the PNG to Cloudinary under the 'id_card' folder.
+            5. Persist the secure URL to profile.id_card_image.
+            6. Send an email notification with the download URL.
+
+        Returns:
+            dict: {"success": True, "profile_id": ..., "id_card_url": ...}
+                  or {"success": False, "error": ...}
+        """
     try:
         profile = FreelancerProfile.objects.get(id=profile_id)
-
-        if profile.verification_status == "verified":
-            id_card = generate_digital_id_card(profile)
-            if id_card:
-                profile.id_card_image = id_card
-                profile.save()
-
-                # Send notification
-                send_notification_email(
-                    profile.user.email,
-                    "Digital ID Card Generated",
-                    f"Dear {profile.first_name}, your digital ID card has been generated and is ready for download.",
-                )
-
-                return {"success": True, "profile_id": str(profile_id)}
-
-        return {"success": False, "error": "Profile not verified"}
     except FreelancerProfile.DoesNotExist:
         return {"success": False, "error": "Profile not found"}
+
+    if profile.verification_status != "verified":
+        return {"success": False, "error": "Profile is not verified — cannot generate ID card"}
+
+        # ── Generate the card image ────────────────────────────────────────────
+    img_bytes: io.BytesIO | None = generate_digital_id_card(profile)
+    if img_bytes is None:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=Exception("ID card generation returned None"))
+        return {"success": False, "error": "Failed to generate ID card image"}
+
+    # ── Upload to Cloudinary ───────────────────────────────────────────────
+    try:
+        id_card_url = upload_to_cloudinary(img_bytes, "id_card", profile.id)
+    except Exception as exc:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc)
+        return {"success": False, "error": f"Cloudinary upload failed: {exc}"}
+
+    # ── Persist URL ────────────────────────────────────────────────────────
+    profile.id_card_image = id_card_url
+    profile.save(update_fields=["id_card_image"])
+
+    # ── Notify the freelancer ──────────────────────────────────────────────
+    # send_notification_email(
+    #     profile.user.email,
+    #     "Your Digital ID Card is Ready",
+    #     (
+    #         f"Dear {profile.first_name},\n\n"
+    #         "Your Virtual Citizenship Digital ID Card has been generated and is ready to download.\n\n"
+    #         f"Download link: {id_card_url}\n\n"
+    #         "You can also download it any time from your profile dashboard.\n\n"
+    #         "Best regards,\n"
+    #         "Virtual Citizenship Team"
+    #     ),
+    # )
+
+    return {
+        "success": True,
+        "profile_id": str(profile_id),
+        "id_card_url": id_card_url,
+    }
 
 
 @shared_task

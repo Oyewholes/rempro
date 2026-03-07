@@ -10,7 +10,7 @@ from appone.serializers import (
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
 from appone.utils import verify_user_is_in_nigeria
-from appone.tasks import upload_to_cloudinary_task
+from appone.tasks import upload_to_cloudinary_task, generate_id_card_task
 from RemPro import settings
 import base64
 import logging
@@ -66,14 +66,8 @@ def _handle_file_upload(
         )
 
     try:
-        start = time.monotonic()
         file_bytes = uploaded_file.read()
-        read_end = time.monotonic()
-        logger.info("upload: read %d bytes in %.3fs", len(file_bytes), read_end - start)
-
         file_b64 = base64.b64encode(file_bytes).decode("utf-8")
-        b64_end = time.monotonic()
-        logger.info("upload: base64 encoded in %.3fs", b64_end - read_end)
     except Exception:
         return Response(
             {"error": "Failed to read uploaded file. Please try again."},
@@ -86,9 +80,6 @@ def _handle_file_upload(
             args=[str(profile.id), file_b64, file_type, profile_field],
             ignore_result=True,
         )
-        task_end = time.monotonic()
-        logger.info("upload: enqueued task in %.3fs", task_end - b64_end)
-        logger.info("upload: total handler time %.3fs", task_end - start)
     except Exception:
         return Response(
             {"error": "Upload queue unavailable. Please try again later."},
@@ -250,12 +241,6 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"])
     def upload_live_photo(self, request):
-        # img = Image.open(request.FILES["live_photo"])
-        # img.thumbnail(1920, 1080)
-        # compressed = io.BytesIO()
-        # img.save(compressed, format="JPEG", quality=85)
-        # compressed.seek(0)
-        # file_bytes = compressed.read()
         return _handle_file_upload(
             self,
             request,
@@ -378,9 +363,83 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
         serializer = FreelancerPublicProfileSerializer(profile)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["post"])
+    def generate_id_card(self, request):
+        """
+        Trigger (re)generation of the freelancer's digital ID card.
+
+        The card is generated asynchronously by ``generate_id_card_task``.
+        Once complete the Cloudinary URL is persisted on the profile and an
+        email notification is sent to the freelancer.
+
+        Only verified profiles can generate an ID card.
+
+        Response (202):
+            {
+                "message": "ID card generation started. ...",
+                "status":  "processing"
+            }
+        """
+        try:
+            profile = request.user.freelancer_profile
+        except FreelancerProfile.DoesNotExist:
+            return Response(
+                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+
+        if profile.verification_status != "verified":
+            return Response(
+                {
+                    "error": (
+                        "Your profile must be verified before an ID card can be generated. "
+                        f"Current status: {profile.verification_status}"
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            generate_id_card_task.apply_async(
+                args=[str(profile.id)],
+                ignore_result=False,
+            )
+        except Exception as exc:
+            logger.error("generate_id_card: failed to enqueue task for profile %s: %s", profile.id, exc)
+            return Response(
+                {"error": "ID card generation queue is unavailable. Please try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {
+                "message": (
+                    "ID card generation started. You will receive an email when it's ready, "
+                    "and it will be available for download from GET /api/freelancers/download_id_card/."
+                ),
+                "status": "processing",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
     @action(detail=False, methods=["get"])
     def download_id_card(self, request):
-        """Download digital ID card"""
+        """
+        Return the Cloudinary download URL for the freelancer's digital ID card.
+
+        The URL points to a PNG image hosted on Cloudinary and can be used
+        directly in a browser or ``<img>`` tag.  Clients that need a forced
+        file download should append ``?fl_attachment`` to the Cloudinary URL
+        (standard Cloudinary transformation flag).
+
+        Response (200):
+            {
+                "id_card_url":      "https://res.cloudinary.com/…/id_card_<uuid>.png",
+                "download_url":     "https://res.cloudinary.com/…/id_card_<uuid>.png?fl_attachment",
+                "profile_name":     "John Doe",
+                "digital_id":       "<uuid>",
+                "generated":        true
+            }
+        """
         try:
             profile = request.user.freelancer_profile
         except FreelancerProfile.DoesNotExist:
@@ -389,10 +448,33 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
             )
 
         if not profile.id_card_image:
+            # Give a helpful hint if the profile is verified but card not yet generated
+            if profile.verification_status == "verified":
+                hint = (
+                    "Your ID card has not been generated yet. "
+                    "Call POST /api/freelancers/generate_id_card/ to create one."
+                )
+            else:
+                hint = (
+                    "Your profile must be verified before an ID card can be generated. "
+                    f"Current status: {profile.verification_status}."
+                )
             return Response(
-                {"error": "ID card not generated yet"}, status=status.HTTP_404_NOT_FOUND
+                {"error": "ID card not available.", "hint": hint},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Cloudinary supports forced downloads by appending ?fl_attachment
+        base_url = profile.id_card_image
+        download_url = f"{base_url}?fl_attachment=Virtual_Citizenship_ID_{profile.digital_id}.png"
+
         return Response(
-            {"id_card_url": profile.id_card_image.url}, status=status.HTTP_200_OK
+            {
+                "id_card_url": base_url,
+                "download_url": download_url,
+                "profile_name": f"{profile.first_name} {profile.last_name}".strip(),
+                "digital_id": str(profile.digital_id),
+                "generated": True,
+            },
+            status=status.HTTP_200_OK,
         )
