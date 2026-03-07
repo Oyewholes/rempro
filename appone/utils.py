@@ -3,7 +3,7 @@ import string
 import requests
 from django.core.mail import send_mail
 from django.conf import settings
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import io
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import cloudinary.uploader
@@ -554,7 +554,6 @@ def generate_digital_id_card(freelancer_profile):
         return output
 
     except Exception as exc:
-        logger.error("generate_digital_id_card failed for profile %s: %s", freelancer_profile.id, exc)
         return None
 
 

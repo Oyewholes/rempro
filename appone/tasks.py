@@ -163,7 +163,7 @@ def verify_company_registration_task(company_id):
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def generate_id_card_task(profile_id):
+def generate_id_card_task(self, profile_id):
     """
         Async task to generate a digital ID card for a verified freelancer,
         upload it to Cloudinary, and save the resulting URL on the profile.
