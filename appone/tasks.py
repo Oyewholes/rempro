@@ -21,6 +21,9 @@ from .utils import (
     upload_to_cloudinary,
     send_notification_email,
 )
+import logging
+
+logger = logging.getLogger("__name__")
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -193,7 +196,7 @@ def generate_id_card_task(self, profile_id):
             "error": "Profile is not verified — cannot generate ID card",
         }
 
-        # ── Generate the card image ────────────────────────────────────────────
+    # ── Generate the card image ────────────────────────────────────────────
     img_bytes: io.BytesIO | None = generate_digital_id_card(profile)
     if img_bytes is None:
         if self.request.retries < self.max_retries:
@@ -213,18 +216,27 @@ def generate_id_card_task(self, profile_id):
     profile.save(update_fields=["id_card_image"])
 
     # ── Notify the freelancer ──────────────────────────────────────────────
-    send_notification_email(
-        profile.user.email,
-        "Your Digital ID Card is Ready",
-        (
-            f"Dear {profile.first_name},\n\n"
-            "Your Virtual Citizenship Digital ID Card has been generated and is ready to download.\n\n"
-            f"Download link: {id_card_url}\n\n"
-            "You can also download it any time from your profile dashboard.\n\n"
-            "Best regards,\n"
-            "Virtual Citizenship Team"
-        ),
-    )
+    try:
+        send_notification_email(
+            profile.user.email,
+            "Your Digital ID Card is Ready",
+            (
+                f"Dear {profile.first_name},\n\n"
+                "Your Virtual Citizenship Digital ID Card has been generated and is ready to download.\n\n"
+                f"Download link: {id_card_url}\n\n"
+                "You can also download it any time from your profile dashboard.\n\n"
+                "Best regards,\n"
+                "Virtual Citizenship Team"
+            ),
+        )
+    except Exception as exc:
+        # Don't retry the whole task just because email failed
+        logger.error(
+            "generate_id_card_task: email notification failed for profile %s | %s",
+            profile_id,
+            exc,
+            exc_info=True,
+        )
 
     return {
         "success": True,
