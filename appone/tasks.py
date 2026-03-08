@@ -20,7 +20,7 @@ from .utils import (
     process_paystack_payment,
     upload_to_cloudinary,
     send_notification_email,
-    generate_signed_url,
+    generate_signed_download_url,
 )
 import logging
 
@@ -242,8 +242,11 @@ def generate_id_card_task(self, profile_id):
         profile.verification_status,
     )
     # ── Notify the freelancer ──────────────────────────────────────────────
-    download_link = generate_signed_url(
-        id_card_url, resource_type="image", expiry_seconds=30
+    download_link = generate_signed_download_url(
+        id_card_url,
+        filename=f"Virtual_Citizenship_ID_{profile.digital_id}.png",
+        resource_type="image",
+        expiry_seconds=120,
     )  # 24hr
 
     try:

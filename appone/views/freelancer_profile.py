@@ -9,7 +9,11 @@ from appone.serializers import (
 )
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
-from appone.utils import verify_user_is_in_nigeria, generate_signed_url
+from appone.utils import (
+    verify_user_is_in_nigeria,
+    generate_signed_url,
+    generate_signed_download_url,
+)
 from appone.tasks import upload_to_cloudinary_task, generate_id_card_task
 from RemPro import settings
 import base64
@@ -472,7 +476,13 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
         # Generate a signed URL valid for 10 minutes
         signed_url = generate_signed_url(
-            profile.id_card_image, resource_type="image", expiry_seconds=30
+            profile.id_card_image, resource_type="image", expiry_seconds=120
+        )
+        download_url = generate_signed_download_url(
+            profile.id_card_image,
+            filename=f"Virtual_Citizenship_ID_{profile.digital_id}.png",
+            resource_type="image",
+            expiry_seconds=120,
         )
 
         # Cloudinary supports forced downloads by appending ?fl_attachment
@@ -486,7 +496,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
                 "profile_name": f"{profile.first_name} {profile.last_name}".strip(),
                 "digital_id": str(profile.digital_id),
                 "generated": True,
-                "expires_in_seconds": 30,
+                "expires_in_seconds": 120,
             },
             status=status.HTTP_200_OK,
         )

@@ -232,22 +232,57 @@ def send_otp(contact_info, otp_code, method="auto"):
 
     return False, "failed"
 
-def generate_signed_url(public_id: str, resource_type: str = "image", expiry_seconds: int = 300) -> str:
+
+def generate_signed_url(
+    public_id: str, resource_type: str = "image", expiry_seconds: int = 300
+) -> str:
     """
     Generate a time-limited signed Cloudinary URL.
-    Default expiry is 5 minutes — adjust per use case.
+
+    Uses private_download_url instead of cloudinary_url so the signature
+    and expiry are validated on every request --CDN caching is bypassed entirely
     """
+    if resource_type == "image":
+        fmt = "png"
+    else:
+        fmt = public_id.rsplit(".", 1)[-1] if "." in public_id else "pdf"
     expires_at = int(time.time()) + expiry_seconds
 
-    url, _ = cloudinary.utils.cloudinary_url(
+    url = cloudinary.utils.private_download_url(
         public_id,
+        fmt,
         resource_type=resource_type,
-        type="authenticated",
-        sign_url=True,
         expires_at=expires_at,
-        secure=True,
+        attachment=False,
     )
     return url
+
+
+def generate_signed_download_url(
+    public_id: str,
+    filename: str,
+    resource_type: str = "image",
+    expiry_seconds: int = 300,
+) -> str:
+    """
+    Same as generate_signed_url but forces a file download with a custom filename.
+    """
+    fmt = (
+        "png"
+        if resource_type == "image"
+        else (public_id.rsplit(".", 1)[-1] if "." in public_id else "pdf")
+    )
+    expires_at = int(time.time()) + expiry_seconds
+
+    url = cloudinary.utils.private_download_url(
+        public_id,
+        fmt,
+        resource_type=resource_type,
+        expires_at=expires_at,
+        attachment=True,
+    )
+    return url
+
 
 def upload_to_cloudinary(file, file_type, freelancer_id):
     """
@@ -273,7 +308,7 @@ def upload_to_cloudinary(file, file_type, freelancer_id):
         folder=f"virtual_citizenship/{file_type}s",
         public_id=f"{file_type}_{freelancer_id}",
         resource_type=resource_type,
-        type='authenticated',
+        type="authenticated",
         overwrite=True,
     )
     return result["public_id"]
