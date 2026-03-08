@@ -485,10 +485,6 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
             expiry_seconds=120,
         )
 
-        # Cloudinary supports forced downloads by appending ?fl_attachment
-        # base_url = profile.id_card_image
-        download_url = f"{signed_url}?fl_attachment=Virtual_Citizenship_ID_{profile.digital_id}.png"
-
         return Response(
             {
                 "id_card_url": signed_url,

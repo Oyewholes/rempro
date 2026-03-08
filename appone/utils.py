@@ -526,7 +526,16 @@ def generate_digital_id_card(freelancer_profile):
 
         live_photo_loaded = False
         if freelancer_profile.live_photo:
-            raw_photo = _fetch_image_from_url(freelancer_profile.live_photo)
+            try:
+                fetchable_url = generate_signed_url(
+                    freelancer_profile.live_photo,
+                    resource_type="image",
+                    expiry_seconds=60,
+                )
+                raw_photo = _fetch_image_from_url(fetchable_url)
+            except Exception:
+                raw_photo = None
+
             if raw_photo:
                 # Crop to square, then resize to target
                 raw_photo = ImageOps.fit(
