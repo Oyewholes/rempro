@@ -180,9 +180,9 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "your-email@example.com"
-EMAIL_HOST_PASSWORD = "your-email-password"
-DEFAULT_FROM_EMAIL = "Virtual Citizenship <noreply@virtualcitizenship.com>"
+EMAIL_HOST_USER = config("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = f"Virtual Citizenship <{config('EMAIL_HOST_USER')}>"
 
 # SMS Configuration (Example: Africa's Talking)
 SMS_API_KEY = "your-sms-api-key"

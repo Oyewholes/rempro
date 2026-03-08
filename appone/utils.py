@@ -5,13 +5,35 @@ from django.core.mail import send_mail
 from django.conf import settings
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import io
-from django.core.files.uploadedfile import InMemoryUploadedFile
 import cloudinary.uploader
+import logging
+
+logger = logging.getLogger(__name__)
 
 NIGERIA_COUNTRY_CODE = "NG"
 NIGERIA_COUNTRY_NAME = "Nigeria"
 
 _LOCAL_IP_PREFIXES = ("127.", "192.168.", "10.", "172.", "::1")
+
+
+def _build_location_result(
+    country_code: str,
+    country_name: str,
+    city: str,
+    region: str,
+    latitude,
+    longitude,
+) -> dict:
+    """Normalise the result dict and add the convenience `is_nigeria` flag."""
+    return {
+        "country_code": country_code,
+        "country_name": country_name,
+        "city": city,
+        "region": region,
+        "latitude": latitude,
+        "longitude": longitude,
+        "is_nigeria": country_code.upper() == NIGERIA_COUNTRY_CODE,
+    }
 
 
 def _fetch_image_from_url(url: str) -> Image.Image | None:
@@ -33,6 +55,7 @@ def _make_circle_mask(size: tuple[int, int]) -> Image.Image:
     draw = ImageDraw.Draw(mask)
     draw.ellipse((0, 0, size[0] - 1, size[1] - 1), fill=255)
     return mask
+
 
 def generate_otp(length=6):
     """Generate a random OTP code"""
@@ -130,23 +153,21 @@ def send_otp_sms_africas_talking(phone_number, otp_code):
         return False
 
 
-def send_otp_email(email, otp_code, otp_type="verification"):
+def send_otp_email(email: str, otp_code: str, otp_type: str = "verification") -> bool:
     """
-    Send OTP via email
+    Send an OTP code to the given email address via Gmail SMTP.
+
+    Returns True on success, False on failure (error is logged, never swallowed silently).
     """
+    type_label = otp_type.replace("_", " ").title()
+    subject = f"Virtual Citizenship - {type_label} Code"
+    message = (
+        f"Your Virtual Citizenship verification code is: {otp_code}\n\n"
+        f"This code expires in 10 minutes.\n\n"
+        f"If you did not request this, please ignore this email.\n\n"
+        f"— Virtual Citizenship Team"
+    )
     try:
-        subject = f"Virtual Citizenship - {otp_type.title()} Code"
-        message = f"""
-        Your Virtual Citizenship verification code is: {otp_code}
-
-        This code will expire in 10 minutes.
-
-        If you didn't request this code, please ignore this email.
-
-        Best regards,
-        Virtual Citizenship Team
-        """
-
         send_mail(
             subject,
             message,
@@ -154,8 +175,16 @@ def send_otp_email(email, otp_code, otp_type="verification"):
             [email],
             fail_silently=False,
         )
+        logger.info("OTP email sent to %s (type=%s)", email, otp_type)
         return True
-    except Exception as e:
+    except Exception as exc:
+        logger.error(
+            "send_otp_email FAILED | to=%s type=%s | %s",
+            email,
+            otp_type,
+            exc,
+            exc_info=True,
+        )
         return False
 
 
@@ -360,26 +389,6 @@ def get_ip_location(ip_address: str) -> dict | None:
         return None
 
 
-def _build_location_result(
-    country_code: str,
-    country_name: str,
-    city: str,
-    region: str,
-    latitude,
-    longitude,
-) -> dict:
-    """Normalise the result dict and add the convenience `is_nigeria` flag."""
-    return {
-        "country_code": country_code,
-        "country_name": country_name,
-        "city": city,
-        "region": region,
-        "latitude": latitude,
-        "longitude": longitude,
-        "is_nigeria": country_code.upper() == NIGERIA_COUNTRY_CODE,
-    }
-
-
 def verify_user_is_in_nigeria(ip_address: str) -> tuple[bool, dict | None, str]:
     """
     High-level helper used by the view.
@@ -427,11 +436,11 @@ def generate_digital_id_card(freelancer_profile):
     try:
         # ── Canvas ────────────────────────────────────────────────────────
         WIDTH, HEIGHT = 700, 420
-        DARK_BG = "#1a1a2e"
-        HEADER_BG = "#16213e"
-        ACCENT = "#00d9ff"
-        WHITE = "#ffffff"
-        GREY = "#a0a0b0"
+        DARK_BG = "#ffffff"
+        HEADER_BG = "#FCFCFD"
+        ACCENT = "#2b00ff"
+        WHITE = "#080000"
+        GREY = "#FCFBFB"
 
         img = Image.new("RGB", (WIDTH, HEIGHT), color=DARK_BG)
         draw = ImageDraw.Draw(img)
@@ -512,7 +521,9 @@ def generate_digital_id_card(freelancer_profile):
             draw.text((TEXT_X, y_pos), label, fill=ACCENT, font=font_label)
             draw.text((TEXT_X, y_pos + 16), value, fill=WHITE, font=font_value)
 
-        full_name = f"{freelancer_profile.first_name} {freelancer_profile.last_name}".strip()
+        full_name = (
+            f"{freelancer_profile.first_name} {freelancer_profile.last_name}".strip()
+        )
         draw_field("Full Name", full_name or "—", y)
         y += LINE_GAP + 6
 
@@ -520,7 +531,11 @@ def generate_digital_id_card(freelancer_profile):
         y += LINE_GAP + 6
 
         status_label = freelancer_profile.verification_status.upper()
-        status_color = "#00ff88" if freelancer_profile.verification_status == "verified" else "#ff9900"
+        status_color = (
+            "#3300ff"
+            if freelancer_profile.verification_status == "verified"
+            else "#ff0000"
+        )
         draw.text((TEXT_X, y), "Status", fill=ACCENT, font=font_label)
         draw.text((TEXT_X, y + 16), status_label, fill=status_color, font=font_value)
         y += LINE_GAP + 6
@@ -670,9 +685,11 @@ def flag_suspicious_message(message_content):
     return False, ""
 
 
-def send_notification_email(user_email, subject, message):
+def send_notification_email(user_email: str, subject: str, message: str) -> bool:
     """
-    Send notification email to user
+    Send a plain-text notification email via Gmail SMTP.
+
+    Returns True on success, False on failure (error is logged).
     """
     try:
         send_mail(
@@ -682,7 +699,14 @@ def send_notification_email(user_email, subject, message):
             [user_email],
             fail_silently=False,
         )
+        logger.info("Notification email sent to %s | subject=%r", user_email, subject)
         return True
-    except Exception as e:
-        print(f"Error sending notification: {e}")
+    except Exception as exc:
+        logger.error(
+            "send_notification_email FAILED | to=%s subject=%r | %s",
+            user_email,
+            subject,
+            exc,
+            exc_info=True,
+        )
         return False
