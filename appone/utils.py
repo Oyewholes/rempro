@@ -24,7 +24,6 @@ def _fetch_image_from_url(url: str) -> Image.Image | None:
         resp.raise_for_status()
         return Image.open(io.BytesIO(resp.content)).convert("RGB")
     except Exception as exc:
-        logger.warning("ID card: could not fetch live photo from %s — %s", url, exc)
         return None
 
 
@@ -554,6 +553,7 @@ def generate_digital_id_card(freelancer_profile):
         return output
 
     except Exception as exc:
+        print(f"generate_digital_id_card FAILED: {exc!r}")  # temporary
         return None
 
 
