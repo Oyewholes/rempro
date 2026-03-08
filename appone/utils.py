@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 import io
 import cloudinary.uploader
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,22 @@ def send_otp(contact_info, otp_code, method="auto"):
 
     return False, "failed"
 
+def generate_signed_url(public_id: str, resource_type: str = "image", expiry_seconds: int = 300) -> str:
+    """
+    Generate a time-limited signed Cloudinary URL.
+    Default expiry is 5 minutes — adjust per use case.
+    """
+    expires_at = int(time.time()) + expiry_seconds
+
+    url, _ = cloudinary.utils.cloudinary_url(
+        public_id,
+        resource_type=resource_type,
+        type="authenticated",
+        sign_url=True,
+        expires_at=expires_at,
+        secure=True,
+    )
+    return url
 
 def upload_to_cloudinary(file, file_type, freelancer_id):
     """
@@ -256,9 +273,10 @@ def upload_to_cloudinary(file, file_type, freelancer_id):
         folder=f"virtual_citizenship/{file_type}s",
         public_id=f"{file_type}_{freelancer_id}",
         resource_type=resource_type,
+        type='authenticated',
         overwrite=True,
     )
-    return result["secure_url"]
+    return result["public_id"]
 
 
 def verify_nigerian_nin(nin):

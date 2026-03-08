@@ -9,7 +9,7 @@ from appone.serializers import (
 )
 from appone.models import FreelancerProfile, ProfileAccessLog
 from appone.permissions import IsFreelancer
-from appone.utils import verify_user_is_in_nigeria
+from appone.utils import verify_user_is_in_nigeria, generate_signed_url
 from appone.tasks import upload_to_cloudinary_task, generate_id_card_task
 from RemPro import settings
 import base64
@@ -230,6 +230,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"])
     def upload_cv(self, request):
+        # signed_url = generate_signed_url(profile.cv_file, resource_type="raw", expiry_seconds=300)
         return _handle_file_upload(
             self,
             request,
@@ -404,9 +405,15 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
                 ignore_result=False,
             )
         except Exception as exc:
-            logger.error("generate_id_card: failed to enqueue task for profile %s: %s", profile.id, exc)
+            logger.error(
+                "generate_id_card: failed to enqueue task for profile %s: %s",
+                profile.id,
+                exc,
+            )
             return Response(
-                {"error": "ID card generation queue is unavailable. Please try again later."},
+                {
+                    "error": "ID card generation queue is unavailable. Please try again later."
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -448,7 +455,6 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
             )
 
         if not profile.id_card_image:
-            # Give a helpful hint if the profile is verified but card not yet generated
             if profile.verification_status == "verified":
                 hint = (
                     "Your ID card has not been generated yet. "
@@ -464,17 +470,23 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Generate a signed URL valid for 10 minutes
+        signed_url = generate_signed_url(
+            profile.id_card_image, resource_type="image", expiry_seconds=30
+        )
+
         # Cloudinary supports forced downloads by appending ?fl_attachment
-        base_url = profile.id_card_image
-        download_url = f"{base_url}?fl_attachment=Virtual_Citizenship_ID_{profile.digital_id}.png"
+        # base_url = profile.id_card_image
+        download_url = f"{signed_url}?fl_attachment=Virtual_Citizenship_ID_{profile.digital_id}.png"
 
         return Response(
             {
-                "id_card_url": base_url,
+                "id_card_url": signed_url,
                 "download_url": download_url,
                 "profile_name": f"{profile.first_name} {profile.last_name}".strip(),
                 "digital_id": str(profile.digital_id),
                 "generated": True,
+                "expires_in_seconds": 30,
             },
             status=status.HTTP_200_OK,
         )

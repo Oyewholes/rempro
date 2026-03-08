@@ -20,6 +20,7 @@ from .utils import (
     process_paystack_payment,
     upload_to_cloudinary,
     send_notification_email,
+    generate_signed_url,
 )
 import logging
 
@@ -100,11 +101,32 @@ def upload_to_cloudinary_task(self, profile_id, file_b64, file_type, profile_fie
         profile.save(update_fields=[profile_field])
         profile.calculate_profile_completion()
 
-        return {"success": True, "url": url, "field": profile_field}
+        # ── Notify the freelancer ──────────────────────────────────────────────
+        try:
+            email_sent = send_notification_email(
+                profile.user.email,
+                f"Your {file_type.replace('_', ' ').title()} is Uploaded",
+                (
+                    f"Dear {profile.first_name},\n\n"
+                    f"Your Virtual Citizenship {file_type.replace('_', ' ').upper()} has been uploaded successfully.\n\n"
+                    "Best regards,\n"
+                    "Virtual Citizenship Team"
+                ),
+            )
+            if email_sent:
+                logger.info(f"Email sent to {profile.user.email}")
+        except Exception as exc:
+            # Don't retry the whole task just because email failed
+            logger.error(
+                "generate_id_card_task: email notification failed for profile %s | %s",
+                profile_id,
+                exc,
+                exc_info=True,
+            )
 
+        return {"success": True, "url": url, "field": profile_field}
     except FreelancerProfile.DoesNotExist:
         return {"success": False, "error": "Profile not found"}
-
     except Exception as exc:
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc)
@@ -220,6 +242,10 @@ def generate_id_card_task(self, profile_id):
         profile.verification_status,
     )
     # ── Notify the freelancer ──────────────────────────────────────────────
+    download_link = generate_signed_url(
+        id_card_url, resource_type="image", expiry_seconds=30
+    )  # 24hr
+
     try:
         email_sent = send_notification_email(
             profile.user.email,
@@ -227,7 +253,7 @@ def generate_id_card_task(self, profile_id):
             (
                 f"Dear {profile.first_name},\n\n"
                 "Your Virtual Citizenship Digital ID Card has been generated and is ready to download.\n\n"
-                f"Download link: {id_card_url}\n\n"
+                f"Download link: {download_link}\n\n"
                 "You can also download it any time from your profile dashboard.\n\n"
                 "Best regards,\n"
                 "Virtual Citizenship Team"
