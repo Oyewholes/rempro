@@ -23,7 +23,7 @@ from .utils import (
 )
 import logging
 
-logger = logging.getLogger("__name__")
+logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -214,10 +214,14 @@ def generate_id_card_task(self, profile_id):
     # ── Persist URL ────────────────────────────────────────────────────────
     profile.id_card_image = id_card_url
     profile.save(update_fields=["id_card_image"])
-
+    logger.info(
+        "Profile email: %s, verification_status: %s",
+        profile.user.email,
+        profile.verification_status,
+    )
     # ── Notify the freelancer ──────────────────────────────────────────────
     try:
-        send_notification_email(
+        email_sent = send_notification_email(
             profile.user.email,
             "Your Digital ID Card is Ready",
             (
@@ -229,6 +233,13 @@ def generate_id_card_task(self, profile_id):
                 "Virtual Citizenship Team"
             ),
         )
+        if not email_sent:
+            logger.warning(
+                "generate_id_card_task: email notification failed for profile %s — "
+                "card was generated successfully at %s",
+                profile_id,
+                id_card_url,
+            )
     except Exception as exc:
         # Don't retry the whole task just because email failed
         logger.error(
