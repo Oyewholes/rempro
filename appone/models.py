@@ -79,7 +79,7 @@ class FreelancerProfile(models.Model):
     # Digital Identity
     digital_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     digital_id_link = models.CharField(max_length=500, blank=True)
-    id_card_image = models.ImageField(upload_to='id_cards/', null=True, blank=True)
+    id_card_image = models.URLField(null=True, blank=True)
 
     # Verification
     verification_status = models.CharField(max_length=20, choices=VERIFICATION_STATUS, default='pending')
