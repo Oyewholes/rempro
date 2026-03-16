@@ -8,27 +8,108 @@ from .models import (
 from .utils import (
     send_otp_sms, send_otp_email, verify_nigerian_nin,
     verify_company_registration, generate_digital_id_card,
-    send_notification_email, process_paystack_payment
+    process_paystack_payment,upload_cv_to_cloudinary,
+send_notification_email
 )
+import os
 
-
-@shared_task
-def send_otp_task(otp_id):
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_otp_task(self, otp_id):
     """
     Async task to send OTP via SMS or Email
+
+    Args:
+        otp_id: ID of the OTPVerification object
+
+    Returns:
+        dict: Status of the operation
     """
     try:
         otp = OTPVerification.objects.get(id=otp_id)
 
+        # Check if OTP is still valid
+        if otp.is_verified:
+            return{'success': True, 'message': 'OTP already verified'}
+
+        if otp.expires_at < timezone.now():
+            return {'success': False, 'message': 'OTP expired'}
+        success = False
+
         if otp.otp_type == 'phone':
             success = send_otp_sms(otp.phone_number, otp.otp_code)
-        else:
+        elif otp.otp_type in ['company_access', 'profile_access']:
             success = send_otp_email(otp.email, otp.otp_code, otp.otp_type)
 
-        return {'success': success, 'otp_id': str(otp_id)}
+        else:
+            return {'success': False, 'error': 'Unknown OTP type'}
+
+        if success:
+            return {
+                'success': True,
+                'otp_id': str(otp_id),
+                'otp_type': otp.otp_type
+            }
+        else:
+            # Only retry if not in final attempt
+            if self.request.retries < self.max_retries:
+                raise self.retry(exc=Exception("SMS/Email sending failed"))
+
+            return {
+                'success': False,
+                'error': 'Failed to send OTP after retries'
+            }
+
     except OTPVerification.DoesNotExist:
         return {'success': False, 'error': 'OTP not found'}
 
+    except Exception as e:
+
+        # Retry on unexpected errors
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+        return {'success': False, 'error': str(e)}
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def upload_cv_to_cloudinary_task(self, profile_id, file_path):
+    """
+    Async task to upload a CV to Cloudinary and save the URL to the profile.
+
+    Args:
+        profile_id: FreelancerProfile primary key
+        file_path: Absolute path to the temporarily saved file
+    """
+    try:
+        profile = FreelancerProfile.objects.get(id=profile_id)
+
+        with open(file_path, 'rb') as f:
+            url = upload_cv_to_cloudinary(f, profile.digital_id)
+
+        if not url:
+            raise Exception("Cloudinary returned no URL")
+
+        profile.cv_file = url          # Store the Cloudinary URL as a string
+        profile.save(update_fields=['cv_file'])
+        profile.calculate_profile_completion()
+
+        # Clean up temp file
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        # send_notification_email(
+        #     profile.user.email,
+        #     "CV Uploaded Successfully",
+        #     f"Dear {profile.first_name}, your CV has been uploaded successfully."
+        # )
+
+        return {'success': True, 'cv_url': url}
+
+    except FreelancerProfile.DoesNotExist:
+        return {'success': False, 'error': 'Profile not found'}
+
+    except Exception as e:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=e)
+        return {'success': False, 'error': str(e)}
 
 @shared_task
 def verify_nin_task(profile_id):
@@ -54,7 +135,6 @@ def verify_nin_task(profile_id):
         return {'success': True, 'verified': result.get('verified', False)}
     except FreelancerProfile.DoesNotExist:
         return {'success': False, 'error': 'Profile not found'}
-
 
 @shared_task
 def verify_company_registration_task(company_id):
@@ -196,16 +276,22 @@ def check_flagged_messages():
 def cleanup_expired_otps():
     """
     Periodic task to clean up expired OTPs
+    Run this every hour via Celery Beat
+
     """
-    expired_otps = OTPVerification.objects.filter(
-        is_verified=False,
-        expires_at__lt=timezone.now()
-    )
+    try:
+        expired_otps = OTPVerification.objects.filter(
+            is_verified=False,
+            expires_at__lt=timezone.now()
+        )
 
-    count = expired_otps.count()
-    expired_otps.delete()
+        count = expired_otps.count()
+        expired_otps.delete()
 
-    return {'deleted': count}
+        return {'deleted': count}
+
+    except Exception as e:
+        return {'error': str(e)}
 
 
 @shared_task

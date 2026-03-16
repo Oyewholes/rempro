@@ -1,0 +1,13 @@
+django
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+django-filter
+django-extensions
+python-decouple
+Pillow
+twilio
+celery
+redis
+cloudinary
+django-cloudinary-storage

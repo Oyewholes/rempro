@@ -12,6 +12,10 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from datetime import timedelta
 from pathlib import Path
 import os
+from decouple import config, Csv
+import cloudinary
+from celery.schedules import crontab
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,9 +28,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-xlf778i(+qh3xn!nel@s@3u)unpmkwafkq-rf=i)r7!q9&11i&"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+ALLOWED_HOSTS = ["*"]
+DEBUG = config('DEBUG')
 
-ALLOWED_HOSTS = []
+
+
+
 
 
 # Application definition
@@ -40,9 +47,11 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
     'corsheaders',
     'django_filters',
     "appone",
+    'django_extensions',
 
 ]
 
@@ -195,6 +204,11 @@ PAYSTACK_PUBLIC_KEY = 'your-paystack-public-key'
 GOVT_API_BASE_URL = 'https://api.government.ng/v1/'
 GOVT_API_KEY = 'your-government-api-key'
 
+# Twilio SMS OTP Configuration
+TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = config('TWILIO_PHONE_NUMBER')
+
 # Logging Configuration
 LOGGING = {
     'version': 1,
@@ -260,3 +274,24 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+
+# Celery Beat Schedule (for periodic tasks)
+CELERY_BEAT_SCHEDULE = {
+    'cleanup-expired-otps': {
+        'task': 'appone.tasks.cleanup_expired_otps',
+        'schedule': crontab(minute=0),  # Every hour
+    },
+}
+
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': config('CLOUDINARY_CLOUD_NAME', default=''),
+    'API_KEY': config('CLOUDINARY_API_KEY', default=''),
+    'API_SECRET': config('CLOUDINARY_API_SECRET', default=''),
+}
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_STORAGE['CLOUD_NAME'],
+    api_key=CLOUDINARY_STORAGE['API_KEY'],
+    api_secret=CLOUDINARY_STORAGE['API_SECRET'],
+)
+

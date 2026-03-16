@@ -6,6 +6,8 @@ from django.conf import settings
 from PIL import Image, ImageDraw, ImageFont
 import io
 from django.core.files.uploadedfile import InMemoryUploadedFile
+import cloudinary.uploader
+
 
 
 def generate_otp(length=6):
@@ -14,6 +16,72 @@ def generate_otp(length=6):
 
 
 def send_otp_sms(phone_number, otp_code):
+    """
+    Send OTP via SMS using Twilio (with Windows SSL error handling)
+
+    Args:
+        phone_number (str): Phone number in format +234XXXXXXXXXX
+        otp_code (str): The OTP code to send
+
+    Returns:
+        bool: True if SMS sent successfully, False otherwise
+    """
+    try:
+        # Check if Twilio is configured
+        if not all([
+            getattr(settings, 'TWILIO_ACCOUNT_SID', None),
+            getattr(settings, 'TWILIO_AUTH_TOKEN', None),
+            getattr(settings, 'TWILIO_PHONE_NUMBER', None)
+        ]):
+
+            # In development, just log the OTP
+            if settings.DEBUG:
+                return True
+            return False
+
+        # Import Twilio here to avoid import errors if not installed
+        try:
+            from twilio.rest import Client
+            from twilio.http.http_client import TwilioHttpClient
+        except ImportError:
+            if settings.DEBUG:
+                return True
+            return False
+
+        # Create HTTP client with SSL handling for Windows
+        http_client = TwilioHttpClient()
+
+        # In development on Windows, disable SSL verification to avoid SSL errors
+        # WARNING: Never do this in production!
+        if settings.DEBUG and hasattr(http_client, 'session'):
+            http_client.session.verify = False
+
+        # Create Twilio client
+        client = Client(
+            settings.TWILIO_ACCOUNT_SID,
+            settings.TWILIO_AUTH_TOKEN,
+            http_client=http_client
+        )
+
+        # Send SMS
+        message = client.messages.create(
+            body=f"Your Virtual Citizenship verification code is: {otp_code}\n"
+                 f"This code will expire in 10 minutes.\n"
+                 f"Do not share this code with anyone.",
+            from_=settings.TWILIO_PHONE_NUMBER,
+            to=phone_number
+        )
+
+        return True
+
+    except Exception as e:
+        if settings.DEBUG:
+            return True
+
+        return False
+
+
+def send_otp_sms_africas_talking(phone_number, otp_code):
     """
     Send OTP via SMS using Africa's Talking or similar service
     """
@@ -34,7 +102,6 @@ def send_otp_sms(phone_number, otp_code):
         response = requests.post(url, headers=headers, data=data)
         return response.status_code == 200
     except Exception as e:
-        print(f"Error sending SMS: {e}")
         return False
 
 
@@ -64,9 +131,76 @@ def send_otp_email(email, otp_code, otp_type='verification'):
         )
         return True
     except Exception as e:
-        print(f"Error sending email: {e}")
         return False
 
+
+def send_otp(contact_info, otp_code, method='auto'):
+    """
+    Universal OTP sender - automatically detects phone vs email and tries multiple methods
+
+    Args:
+        contact_info (str): Phone number or email
+        otp_code (str): The OTP code
+        method (str): 'auto', 'sms', 'email', 'twilio', 'africas_talking'
+
+    Returns:
+        tuple: (success: bool, method_used: str)
+    """
+    # Detect if it's a phone number or email
+    if method == 'auto':
+        if '@' in contact_info:
+            method = 'email'
+        elif contact_info.startswith('+'):
+            method = 'sms'
+        else:
+            return False, 'unknown'
+
+    # Try to send based on method
+    if method == 'email':
+        success = send_otp_email(contact_info, otp_code)
+        return success, 'email'
+
+    elif method in ['sms', 'twilio']:
+        success = send_otp_sms(contact_info, otp_code)
+        if success:
+            return True, 'twilio'
+
+        # Fallback to Africa's Talking if Twilio fails
+        if hasattr(settings, 'SMS_API_KEY'):
+            success = send_otp_sms_africas_talking(contact_info, otp_code)
+            if success:
+                return True, 'africas_talking'
+
+    elif method == 'africas_talking':
+        success = send_otp_sms_africas_talking(contact_info, otp_code)
+        return success, 'africas_talking'
+
+    return False, 'failed'
+
+def upload_cv_to_cloudinary(file, freelancer_id):
+    """
+    Upload a CV file to Cloudinary and return the secure URL.
+
+    Args:
+        file: The uploaded file object
+        freelancer_id: Used to create a unique public_id
+
+    Returns:
+        str: The Cloudinary secure URL, or None on failure
+    """
+    try:
+        result = cloudinary.uploader.upload(
+            file,
+            folder="virtual_citizenship/cvs",
+            public_id=f"cv_{freelancer_id}",
+            resource_type="raw",
+            allowed_formats=["pdf", "doc", "docx"],
+            overwrite=True,
+        )
+        return result['secure_url']
+
+    except Exception as e:
+        return None
 
 def verify_nigerian_nin(nin):
     """

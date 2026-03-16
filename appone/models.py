@@ -4,6 +4,7 @@ from django.core.validators import RegexValidator
 import uuid
 from decimal import Decimal
 
+phone_validator = RegexValidator(regex=r'^\+234\d{10}$', message="Phone must be in format: '+234XXXXXXXXXX'")
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -32,6 +33,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
+    phone_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_verified = models.BooleanField(default=False)
@@ -55,14 +58,13 @@ class FreelancerProfile(models.Model):
     )
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='freelancer_profile')
-    phone_validator = RegexValidator(regex=r'^\+234\d{10}$', message="Phone must be in format: '+234XXXXXXXXXX'")
-    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
     phone_verified = models.BooleanField(default=False)
 
     # Personal Information
-    first_name = models.CharField(max_length=100)
-    last_name = models.CharField(max_length=100)
-    nin = models.CharField(max_length=11, unique=True, help_text="National Identification Number")
+    first_name = models.CharField(max_length=100, blank=True)
+    last_name = models.CharField(max_length=100, blank=True)
+    nin = models.CharField(max_length=11, unique=True, help_text="National Identification Number", blank=True)
 
     # Location Verification
     ip_address = models.GenericIPAddressField(null=True, blank=True)
@@ -135,12 +137,12 @@ class CompanyProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='company_profile')
 
     # Company Information
-    company_name = models.CharField(max_length=255)
+    company_name = models.CharField(max_length=255, blank=True)
     company_email = models.EmailField(unique=True)
-    company_registration_number = models.CharField(max_length=100, unique=True)
-    country = models.CharField(max_length=100)
-    address = models.TextField()
-    phone_number = models.CharField(max_length=20)
+    company_registration_number = models.CharField(max_length=100, unique=False, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    address = models.TextField(blank=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=True)
     website = models.URLField(blank=True)
 
     # Verification
@@ -154,8 +156,8 @@ class CompanyProfile(models.Model):
     verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='verified_companies')
 
     # Company Details
-    industry = models.CharField(max_length=100)
-    company_size = models.CharField(max_length=50)
+    industry = models.CharField(max_length=100, blank=True)
+    company_size = models.CharField(max_length=50, blank=True)
     description = models.TextField(blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -175,7 +177,7 @@ class OTPVerification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     otp_code = models.CharField(max_length=6)
     otp_type = models.CharField(max_length=20, choices=OTP_TYPE_CHOICES)
-    phone_number = models.CharField(max_length=20, blank=True)
+    phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False)
     email = models.EmailField(blank=True)
     is_verified = models.BooleanField(default=False)
     expires_at = models.DateTimeField()
