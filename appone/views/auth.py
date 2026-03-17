@@ -4,27 +4,27 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from appone.serializer import RegisterSerializer, LoginSerializer
+from appone.serializer import RegisterCompanySerializer, RegisterFreelancerSerializer, LoginSerializer
 
 
 class AuthViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
     @action(detail=False, methods=['post'])
-    def register(self, request):
+    def register_freelancer(self, request):
         """
-                Register a new user.
+                Register a new freelancer user.
 
                 Required body:
                     email, password, password2, user_type, phone_number
 
                 On success:
                     - Creates User
-                    - Creates FreelancerProfile or CompanyProfile (seeded with phone_number)
+                    - Creates FreelancerProfile (seeded with phone_number)
                     - Creates a pending OTPVerification record (phone type)
-                      → call POST /api/otp/send_phone_otp/ next to trigger the SMS
+                    - Sends the OTP code in the background
                 """
-        serializer = RegisterSerializer(data=request.data)
+        serializer = RegisterFreelancerSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -43,9 +43,7 @@ class AuthViewSet(viewsets.ViewSet):
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
             },
-            'next_step': 'Verify your phone at POST /api/otp/verify_phone_otp/',
         }, status=status.HTTP_201_CREATED)
-
 
     @action(detail=False, methods=['post'])
     def login(self, request):
@@ -96,3 +94,37 @@ class AuthViewSet(viewsets.ViewSet):
                 {'error': f'Invalid or already revoked token: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=False, methods=['post'])
+    def register_company(self, request):
+        """
+                Register a new Company user.
+
+                Required body:
+                    email, password, password2, user_type
+
+                On success:
+                    - Creates User
+                    - Creates CompanyProfile
+                    - Creates a pending OTPVerification record (Company Email type)
+                    - Sends the OTP code in the background
+                """
+        serializer = RegisterCompanySerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = serializer.save()
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'message': 'Registration successful. An OTP has been sent to your email.',
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'user_type': user.user_type,
+            },
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            },
+        }, status=status.HTTP_201_CREATED)

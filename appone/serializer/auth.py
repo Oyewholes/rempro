@@ -6,8 +6,9 @@ import re
 from appone.utils import generate_otp
 from django.utils import timezone
 from datetime import timedelta
-from appone.tasks import send_otp_task
+from appone.tasks import send_otp_task, send_company_email_otp_task
 from django.core.validators import validate_email as django_validate_email
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 
 class RegisterFreelancerSerializer(serializers.ModelSerializer):
@@ -187,8 +188,8 @@ class RegisterCompanySerializer(serializers.ModelSerializer):
             )
 
         # Check uniqueness across FreelancerProfile
-        if (FreelancerProfile.objects.filter(email=value).exists() or
-                CompanyProfile.objects.filter(email=value).exists() or
+        if (
+                CompanyProfile.objects.filter(company_email=value).exists() or
                 User.objects.filter(email=value).exists()):
             raise serializers.ValidationError(
                 "An account with this email already exists."
@@ -196,7 +197,7 @@ class RegisterCompanySerializer(serializers.ModelSerializer):
         return value
 
     def validate_user_type(self, value):
-        if value is not 'company':
+        if value != 'company':
             raise serializers.ValidationError(
                 "user_type must be 'company'"
             )
@@ -211,24 +212,36 @@ class RegisterCompanySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password2')
 
-        user = CompanyProfile.objects.create(
+        user = User.objects.create_user(
             email=validated_data['email'],
             password=validated_data['password'],
+            user_type='company',
+        )
+
+        CompanyProfile.objects.create(
+            user=user,
+            company_email=user.email,
         )
 
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
             otp_type='Company Email',
-            phone_number=user.phone_number,
+            phone_number='',
             email=user.email,
             expires_at=timezone.now() + timedelta(minutes=10),
         )
 
         try:
-            send_otp_task.delay(otp.id)  # async via Celery when broker is running
+            send_company_email_otp_task.apply_async(
+                args=[str(otp.id)],
+                ignore_result=False,
+            )
         except Exception:
-            send_otp_task(otp.id)
+            send_company_email_otp_task.apply_async(
+                args=[str(otp.id)],
+                ignore_result=False,
+            )
 
         return user
 
