@@ -252,6 +252,7 @@ def generate_signed_url(
         public_id,
         fmt,
         resource_type=resource_type,
+        type="authenticated",
         expires_at=expires_at,
         attachment=False,
     )
@@ -278,6 +279,7 @@ def generate_signed_download_url(
         public_id,
         fmt,
         resource_type=resource_type,
+        type="authenticated",
         expires_at=expires_at,
         attachment=True,
     )

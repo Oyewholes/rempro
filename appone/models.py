@@ -31,7 +31,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    email = models.EmailField(unique=True)
+    email = model.EmailField(unique=True)
     user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
     phone_number = models.CharField(validators=[phone_validator], max_length=14, unique=False, blank=True)
     phone_verified = models.BooleanField(default=False)
@@ -170,8 +170,7 @@ class CompanyProfile(models.Model):
 class OTPVerification(models.Model):
     OTP_TYPE_CHOICES = (
         ('phone', 'Phone Verification'),
-        ('company_access', 'Company Access'),
-        ('profile_access', 'Profile Access'),
+        ('company_email', 'Company Email'),
     )
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)

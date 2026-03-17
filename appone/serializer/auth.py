@@ -7,21 +7,22 @@ from appone.utils import generate_otp
 from django.utils import timezone
 from datetime import timedelta
 from appone.tasks import send_otp_task
+from django.core.validators import validate_email as django_validate_email
 
 
-class RegisterSerializer(serializers.ModelSerializer):
+class RegisterFreelancerSerializer(serializers.ModelSerializer):
     """
-    Validates and creates a new user on registration.
+    Validates and creates a new freelancer user on registration.
 
     Expects:
         - email
         - password / password2  (confirmation, write-only, never returned)
-        - user_type              (freelancer | company | admin)
+        - user_type              (freelancer | admin)
         - phone_number           (used to seed the profile + kick off OTP)
 
     On success this creates three records atomically:
         1. User
-        2. FreelancerProfile or CompanyProfile (seeded with phone_number)
+        2. FreelancerProfile (seeded with phone_number)
         3. OTPVerification  (phone type, 10-min expiry, ready to be sent)
     """
     password = serializers.CharField(
@@ -63,11 +64,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_user_type(self, value):
-        if value not in ('freelancer', 'company', 'admin'):
+        if value not in ('freelancer',  'admin'):
             raise serializers.ValidationError(
-                "user_type must be 'freelancer' or 'company' or 'admin'."
+                "user_type must be 'freelancer' or 'admin'."
             )
         return value
+
 
     def validate(self, data):
         if data['password'] != data['password2']:
@@ -91,16 +93,9 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
 
         elif user.user_type == 'admin':
-            User.objects.update(
-                is_staff = True
-            )
+            user.is_staff = True
+            user.save(update_fields['is_staff'])
 
-        elif user.user_type == 'company':
-            CompanyProfile.objects.create(
-                user=user,
-                phone_number = user.phone_number,
-                company_email=user.email,
-            )
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
@@ -148,3 +143,92 @@ class LoginSerializer(serializers.Serializer):
             )
         data['user'] = user
         return data
+
+
+class RegisterCompanySerializer(serializers.ModelSerializer):
+    """
+    Validates and creates a new Company user on registration.
+
+    Expects:
+        - email
+        - password / password2  (confirmation, write-only, never returned)
+        - user_type              (company | admin)
+        - email           (used to kick off OTP)
+
+    On success this creates three records atomically:
+        1. User
+        2. CompanyProfile (seeded with phone_number)
+        3. OTPVerification  (email, 10-min expiry, ready to be sent)
+    """
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={'input_type': 'password'},
+    )
+    password2 = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={'input_type': 'password'},
+        label='Confirm Password',
+    )
+
+
+    class Meta:
+        model = User
+        fields = ('id', 'email', 'user_type', 'password', 'password2')
+        read_only_fields = ('id',)
+
+    def validate_email(self, value):
+        try:
+            django_validate_email(value)
+        except DjangoValidationError:
+            raise serializers.ValidationError(
+                "Email must be a valid email address."
+            )
+
+        # Check uniqueness across FreelancerProfile
+        if (FreelancerProfile.objects.filter(email=value).exists() or
+                CompanyProfile.objects.filter(email=value).exists() or
+                User.objects.filter(email=value).exists()):
+            raise serializers.ValidationError(
+                "An account with this email already exists."
+            )
+        return value
+
+    def validate_user_type(self, value):
+        if value is not 'company':
+            raise serializers.ValidationError(
+                "user_type must be 'company'"
+            )
+        return value
+
+    def validate(self, data):
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({'password': "Password fields didn't match."})
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        validated_data.pop('password2')
+
+        user = CompanyProfile.objects.create(
+            email=validated_data['email'],
+            password=validated_data['password'],
+        )
+
+        otp = OTPVerification.objects.create(
+            user=user,
+            otp_code=generate_otp(),
+            otp_type='Company Email',
+            phone_number=user.phone_number,
+            email=user.email,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+
+        try:
+            send_otp_task.delay(otp.id)  # async via Celery when broker is running
+        except Exception:
+            send_otp_task(otp.id)
+
+        return user
+
