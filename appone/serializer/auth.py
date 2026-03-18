@@ -239,7 +239,7 @@ class RegisterCompanySerializer(serializers.ModelSerializer):
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
-            otp_type='Company_email',
+            otp_type='company_email',
             phone_number='',
             email=user.email,
             expires_at=timezone.now() + timedelta(minutes=10),

@@ -169,6 +169,9 @@ class OTPViewSet(viewsets.ViewSet):
             )
 
             otp.is_verified = True
+            CompanyProfile.objects.update(
+                email_verified=True
+            )
             otp.save()
 
             return Response({
