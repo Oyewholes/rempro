@@ -172,8 +172,7 @@ class OTPViewSet(viewsets.ViewSet):
             otp.save()
 
             return Response({
-                'message': 'Access verified successfully',
-                'access_token': otp_code  # Can be used as temporary access token
+                'message': 'Email verified successfully',
             }, status=status.HTTP_200_OK)
 
         except OTPVerification.DoesNotExist:

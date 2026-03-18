@@ -46,6 +46,10 @@ class AuthViewSet(viewsets.ViewSet):
         }, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'])
+    def resend_freelancer_otp(self, request):
+        pass
+
+    @action(detail=False, methods=['post'])
     def login(self, request):
         """Login user"""
         serializer = LoginSerializer(data=request.data)
@@ -128,3 +132,7 @@ class AuthViewSet(viewsets.ViewSet):
                 'access': str(refresh.access_token),
             },
         }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def resend_company_otp(self, request):
+        pass
