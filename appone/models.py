@@ -139,6 +139,7 @@ class CompanyProfile(models.Model):
     # Company Information
     company_name = models.CharField(max_length=255, blank=True)
     company_email = models.EmailField(unique=True)
+    email_verified = models.BooleanField(default=False)
     company_registration_number = models.CharField(max_length=100, unique=False, blank=True)
     country = models.CharField(max_length=100, blank=True)
     address = models.TextField(blank=True)
@@ -170,8 +171,7 @@ class CompanyProfile(models.Model):
 class OTPVerification(models.Model):
     OTP_TYPE_CHOICES = (
         ('phone', 'Phone Verification'),
-        ('company_access', 'Company Access'),
-        ('profile_access', 'Profile Access'),
+        ('company_email', 'Company Email'),
     )
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)

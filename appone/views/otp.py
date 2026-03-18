@@ -151,8 +151,8 @@ class OTPViewSet(viewsets.ViewSet):
         }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
-    def verify_company_access_otp(self, request):
-        """Verify company access OTP"""
+    def verify_company_email_otp(self, request):
+        """Verify company email OTP"""
         serializer = OTPValidateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -163,17 +163,19 @@ class OTPViewSet(viewsets.ViewSet):
             otp = OTPVerification.objects.get(
                 user=request.user,
                 otp_code=otp_code,
-                otp_type='company_access',
+                otp_type='company_email',
                 is_verified=False,
                 expires_at__gte=timezone.now()
             )
 
             otp.is_verified = True
+            CompanyProfile.objects.update(
+                email_verified=True
+            )
             otp.save()
 
             return Response({
-                'message': 'Access verified successfully',
-                'access_token': otp_code  # Can be used as temporary access token
+                'message': 'Company email verified successfully',
             }, status=status.HTTP_200_OK)
 
         except OTPVerification.DoesNotExist:

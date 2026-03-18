@@ -76,6 +76,46 @@ def send_otp_task(self, otp_id):
         return {"success": False, "error": str(e)}
 
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_company_email_otp_task(self, otp_id):
+    """
+    Async task to send OTP to company email after registration.
+
+    Args:
+        otp_id: ID of the OTPVerification object
+
+    Returns:
+        dict: Status of the operation
+    """
+    try:
+        otp = OTPVerification.objects.get(id=otp_id)
+
+        if otp.is_verified:
+            return {"success": True, "message": "OTP already verified"}
+
+        if otp.expires_at < timezone.now():
+            return {"success": False, "message": "OTP expired"}
+
+        success = send_otp_email(otp.email, otp.otp_code, otp_type='company_email')
+
+        if success:
+            logger.info(
+                "send_company_email_otp_task: OTP sent to %s", otp.email
+            )
+            return {"success": True, "otp_id": str(otp_id), "email": otp.email}
+        else:
+            if self.request.retries < self.max_retries:
+                raise self.retry(exc=Exception("Company email OTP sending failed"))
+            return {"success": False, "error": "Failed to send company email OTP after retries"}
+
+    except OTPVerification.DoesNotExist:
+        return {"success": False, "error": "OTP not found"}
+    except Exception as exc:
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc)
+        return {"success": False, "error": str(exc)}
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def upload_to_cloudinary_task(self, profile_id, file_b64, file_type, profile_field):
     """
