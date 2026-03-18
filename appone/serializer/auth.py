@@ -94,8 +94,10 @@ class RegisterFreelancerSerializer(serializers.ModelSerializer):
             )
 
         elif user.user_type == 'admin':
-            user.is_staff = True
-            user.save(update_fields['is_staff'])
+            User.objects.update(
+                is_staff = True,
+                is_superuser = True
+            )
 
         otp = OTPVerification.objects.create(
             user=user,
@@ -142,6 +144,17 @@ class LoginSerializer(serializers.Serializer):
                 'User account is disabled.',
                 code='authorization',
             )
+        if user.user_type == 'freelancer' and not user.phone_number:
+            raise serializers.ValidationError(
+                'please verify your phone number before logging in.',
+                code='authorization',
+            )
+        if user.user_type == 'company' and not user.is_verified:
+            raise serializers.ValidationError(
+                'please verify your email address before logging in.',
+                code='authorization',
+            )
+
         data['user'] = user
         return data
 
@@ -226,7 +239,7 @@ class RegisterCompanySerializer(serializers.ModelSerializer):
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
-            otp_type='Company Email',
+            otp_type='Company_email',
             phone_number='',
             email=user.email,
             expires_at=timezone.now() + timedelta(minutes=10),

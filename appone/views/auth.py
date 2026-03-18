@@ -6,7 +6,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from appone.serializer import RegisterCompanySerializer, RegisterFreelancerSerializer, LoginSerializer
 from appone.tasks import send_otp_task, send_company_email_otp_task
-from appone.models import OTPVerification
+from appone.models import OTPVerification, User
 from django.utils import timezone
 from datetime import timedelta
 from RemPro import settings
@@ -107,6 +107,10 @@ class AuthViewSet(viewsets.ViewSet):
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
 
+            User.objects.update(
+                last_login=timezone.now(),
+            )
+
             return Response({
                 'message': 'Login successful',
                 'user': {
@@ -192,7 +196,7 @@ class AuthViewSet(viewsets.ViewSet):
                 {'error': 'Only company accounts can use this endpoint.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        if request.user.phone_verified:
+        if request.user.is_verified:
             return Response(
                 {'error': 'Your email is already verified.'},
                 status=status.HTTP_400_BAD_REQUEST
