@@ -188,9 +188,11 @@ EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 465
 EMAIL_USE_TLS = False
 EMAIL_USE_SSL = True
-EMAIL_HOST_USER = config("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
+# EMAIL_HOST_USER = config("EMAIL_HOST_USER")
+# EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = f"Virtual Citizenship <{config('EMAIL_HOST_USER')}>"
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="dummy@example.com")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="dummy_password")
 
 # SMS Configuration (Example: Africa's Talking)
 SMS_API_KEY = "your-sms-api-key"
@@ -207,9 +209,13 @@ GOVT_API_BASE_URL = "https://api.government.ng/v1/"
 GOVT_API_KEY = "your-government-api-key"
 
 # Twilio SMS OTP Configuration
-TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
-TWILIO_PHONE_NUMBER = config("TWILIO_PHONE_NUMBER")
+# TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
+# TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
+# TWILIO_PHONE_NUMBER = config("TWILIO_PHONE_NUMBER")
+TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID", default="dummy_sid")
+TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN", default="dummy_token")
+TWILIO_PHONE_NUMBER = config("TWILIO_PHONE_NUMBER", default="+123456789")
+
 
 # Logging Configuration
 LOGGING = {
