@@ -5,6 +5,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from appone.serializer import RegisterCompanySerializer, RegisterFreelancerSerializer, LoginSerializer
+from appone.tasks import send_otp_task, send_company_email_otp_task
+from appone.models import OTPVerification
+from django.utils import timezone
+from datetime import timedelta
+from RemPro import settings
+from appone.utils import generate_otp
 
 
 class AuthViewSet(viewsets.ViewSet):
@@ -47,7 +53,49 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'])
     def resend_freelancer_otp(self, request):
-        pass
+        """
+        Resend phone OTP to an already-registered freelancer.
+        Invalidates any existing unexpired OTP and creates a fresh one.
+        """
+        if not hasattr(request.user, 'freelancer_profile'):
+            return Response(
+                {'error': 'Only freelancer accounts can use this endpoint.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if request.user.phone_verified:
+            return Response(
+                {'error': 'Your phone number is already verified.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Expire any existing unverified phone OTPs for this user
+        OTPVerification.objects.filter(
+            user=request.user,
+            otp_type='phone',
+            is_verified=False,
+        ).update(expires_at=timezone.now())
+
+        otp = OTPVerification.objects.create(
+            user=request.user,
+            otp_code=generate_otp(),
+            otp_type='phone',
+            phone_number=request.user.phone_number,
+            email=request.user.email,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        try:
+            send_otp_task.delay(otp.id)
+        except Exception:
+            send_otp_task(otp.id)
+
+        response_data = {
+            'message': 'A new OTP has been sent to your phone number.',
+            'otp_id': str(otp.id),
+            'expires_at': otp.expires_at,
+        }
+        if settings.DEBUG:
+            response_data['otp_code'] = otp.otp_code
+
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
     def login(self, request):
@@ -135,4 +183,46 @@ class AuthViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'])
     def resend_company_otp(self, request):
-        pass
+        """
+                Resend phone OTP to an already-registered company.
+                Invalidates any existing unexpired OTP and creates a fresh one.
+                """
+        if not hasattr(request.user, 'company_profile'):
+            return Response(
+                {'error': 'Only company accounts can use this endpoint.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if request.user.phone_verified:
+            return Response(
+                {'error': 'Your email is already verified.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Expire any existing unverified phone OTPs for this user
+        OTPVerification.objects.filter(
+            user=request.user,
+            otp_type='company_email',
+            is_verified=False,
+        ).update(expires_at=timezone.now())
+
+        otp = OTPVerification.objects.create(
+            user=request.user,
+            otp_code=generate_otp(),
+            otp_type='company_email',
+            phone_number='',
+            email=request.user.email,
+            expires_at=timezone.now() + timedelta(minutes=10),
+        )
+        try:
+            send_company_email_otp_task.delay(otp.id)
+        except Exception:
+            send_company_email_otp_task(otp.id)
+
+        response_data = {
+            'message': 'A new OTP has been sent to your email address.',
+            'otp_id': str(otp.id),
+            'expires_at': otp.expires_at,
+        }
+        if settings.DEBUG:
+            response_data['otp_code'] = otp.otp_code
+
+        return Response(response_data, status=status.HTTP_200_OK)
