@@ -270,7 +270,8 @@ if not DEBUG:
 # Build the Redis URL from your env vars
 # REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
 
-REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
+# REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
+REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 
 # Celery Configuration
 CELERY_BROKER_URL = REDIS_URL
