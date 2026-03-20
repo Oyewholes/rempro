@@ -122,6 +122,54 @@ class ScheduleMeetingSerializer(serializers.Serializer):
     meeting_link = serializers.URLField(max_length=500)
 
 
+class ProposedMeetingDatesSerializer(serializers.Serializer):
+    """
+    Serializer for a company to submit exactly 3 proposed meeting date/time
+    options for their admin verification meeting.
+
+    Validation rules:
+      1. The list must contain exactly 3 entries.
+      2. Every datetime must be in the future — past datetimes are rejected
+         individually with a message that names the offending slot.
+      3. All 3 datetimes must be unique.
+    """
+    proposed_dates = serializers.ListField(
+        child=serializers.DateTimeField(),
+        min_length=1,
+        max_length=3,
+        help_text=(
+            "Exactly between 1 and 3 future datetimes for your verification meeting. "
+            "ISO 8601 format, e.g. '2026-04-10T09:00:00Z'."
+        ),
+    )
+
+    def validate_proposed_dates(self, value):
+        now = timezone.now()
+        errors = []
+
+        # Rule 1: All dates must be in the future
+        for index, dt in enumerate(value, start=1):
+            if dt <= now:
+                errors.append(
+                    f"Date {index} ({dt.strftime('%Y-%m-%d %H:%M %Z')}) is in the past. "
+                    "All proposed dates must be in the future."
+                )
+
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        # Rule 2: No duplicate datetimes
+        unique_dates = set(value)
+        if len(unique_dates) != len(value):
+            raise serializers.ValidationError(
+                "All proposed dates must be unique. Please provide different date/time options."
+            )
+
+        # Sort chronologically for a cleaner admin experience
+        value.sort()
+        return value
+
+
 # --- 3. Profile Serializers ---
 
 # Helper Serializer for User's public details

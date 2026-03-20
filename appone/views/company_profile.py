@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from appone.serializers import (
     CompanyProfileSerializer, CompanyProfileUpdateSerializer,
-    ScheduleMeetingSerializer
+    ScheduleMeetingSerializer, ProposedMeetingDatesSerializer
 )
 from appone.models import CompanyProfile
 from appone.permissions import IsCompany
@@ -44,6 +44,74 @@ class CompanyProfileViewSet(viewsets.ModelViewSet):
                 serializer.save()
                 return Response(CompanyProfileSerializer(profile).data)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='propose-meeting-dates')
+    def propose_meeting_dates(self, request):
+        """
+               Submit exactly 3 proposed meeting date/time options for the admin
+               verification meeting.
+
+               Rules:
+                 - Exactly 1-3 datetimes are required.
+                 - All datetimes must be in the future (past datetimes are rejected individually).
+                 - All datetimes must be unique (no duplicates).
+                 - The company must not already be verified or rejected.
+                 - Submitting again overwrites the previous proposal.
+
+               Request body:
+                   {
+                       "proposed_dates": [
+                           "2026-04-10T09:00:00Z",
+                           "2026-04-11T14:00:00Z",
+                           "2026-04-12T11:30:00Z"
+                       ]
+                   }
+
+               Response 200:
+                   {
+                       "message": "Your proposed meeting dates have been submitted. ...",
+                       "proposed_dates": ["2026-04-10T09:00:00Z", ...],
+                       "verification_status": "scheduled"
+                   }
+        """
+        try:
+            profile = request.user.company_profile
+        except CompanyProfile.DoesNotExist:
+            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Do not allow re-submission once the company is already verified / rejected
+        if profile.verification_status in ('verified', 'rejected'):
+            return Response(
+                {
+                    'error': (
+                        f"Your company is already '{profile.verification_status}'. "
+                        "Meeting dates can only be proposed while the status is pending or scheduled."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ProposedMeetingDatesSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Persist the 3 proposed dates as ISO strings in the JSONField
+        proposed = serializer.validated_data['proposed_dates']
+        profile.proposed_meeting_dates = [dt.isoformat() for dt in proposed]
+        profile.verification_status = 'scheduled'
+        profile.save(update_fields=['proposed_meeting_dates', 'verification_status', 'updated_at'])
+
+        return Response(
+            {
+                'message': (
+                    "Your proposed meeting dates have been submitted. "
+                    "An admin will confirm one of the slots and you will be notified by email."
+                ),
+                'proposed_dates': profile.proposed_meeting_dates,
+                'verification_status': profile.verification_status,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=False, methods=['post'])
     def schedule_verification_meeting(self, request):
