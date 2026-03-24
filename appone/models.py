@@ -153,6 +153,13 @@ class CompanyProfile(models.Model):
     api_verification_status = models.BooleanField(default=False)
     api_verification_data = models.JSONField(default=dict, blank=True)
 
+    # Proposed meeting dates submitted by the company (3 options)
+    proposed_meeting_dates = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Up to 3 proposed meeting datetimes submitted by the company",
+    )
+
     verified_at = models.DateTimeField(null=True, blank=True)
     verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='verified_companies')
 
