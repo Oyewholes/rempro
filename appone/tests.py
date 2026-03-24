@@ -4,6 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 from datetime import datetime, timedelta
+from django.utils import timezone
 from decimal import Decimal
 
 from .models import (
@@ -67,6 +68,35 @@ def authenticated_freelancer(api_client, freelancer_user):
 def authenticated_company(api_client, company_user):
     api_client.force_authenticate(user=company_user)
     return api_client
+
+@pytest.fixture
+def admin_user(db):
+    """Create an admin user (user_type='admin', is_staff=True)."""
+    return User.objects.create_user(
+        email='admin@test.com',
+        password='adminpass123',
+        user_type='admin',
+        is_staff=True,
+    )
+
+@pytest.fixture
+def authenticated_admin(api_client, admin_user):
+    api_client.force_authenticate(user=admin_user)
+    return api_client
+
+@pytest.fixture
+def company_with_proposed_dates(company_user):
+    """Company profile with 3 proposed meeting dates set 48h+ in the future."""
+    profile = company_user.company_profile
+    base = timezone.now() + timedelta(days=3)
+    profile.proposed_meeting_dates = [
+        (base).isoformat(),
+        (base + timedelta(days=1)).isoformat(),
+        (base + timedelta(days=2)).isoformat(),
+    ]
+    profile.verification_status = 'scheduled'
+    profile.save()
+    return profile
 
 
 # Authentication Tests
@@ -399,3 +429,116 @@ class TestMessageFlagging:
         # Test normal message
         is_flagged, reason = flag_suspicious_message("Let's discuss the project requirements")
         assert is_flagged is False
+
+@pytest.mark.django_db
+class TestAdminEndpoints:
+    # ── company_proposed_dates ────────────────────────────────────────────
+    def test_list_proposed_dates(self, authenticated_admin, company_with_proposed_dates):
+        url = reverse('admin-company-proposed-dates')
+        response = authenticated_admin.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['count'] == 1
+        assert len(response.data['results'][0]['proposed_meeting_dates']) == 3
+
+    def test_list_proposed_dates_non_admin_forbidden(self, authenticated_freelancer):
+        url = reverse('admin-company-proposed-dates')
+        response = authenticated_freelancer.get(url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    # ── confirm_meeting ──────────────────────────────────────────────────
+    def test_confirm_meeting_success(
+        self, authenticated_admin, company_with_proposed_dates
+    ):
+        profile = company_with_proposed_dates
+        selected = profile.proposed_meeting_dates[0]  # 3 days from now
+        url = reverse('admin-confirm-meeting')
+        data = {
+            'company_id': profile.id,
+            'selected_date': selected,
+            'meeting_link': 'https://meet.google.com/abc-defg-hij',
+        }
+        response = authenticated_admin.post(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data['company_id'] == profile.id
+        profile.refresh_from_db()
+        assert profile.verification_status == 'scheduled'
+        assert profile.meeting_link == 'https://meet.google.com/abc-defg-hij'
+        assert profile.meeting_scheduled_at is not None
+
+    def test_confirm_meeting_not_in_proposed(
+        self, authenticated_admin, company_with_proposed_dates
+    ):
+        profile = company_with_proposed_dates
+        wrong_date = (timezone.now() + timedelta(days=10)).isoformat()
+        url = reverse('admin-confirm-meeting')
+        data = {
+            'company_id': profile.id,
+            'selected_date': wrong_date,
+            'meeting_link': 'https://meet.google.com/abc-defg-hij',
+        }
+        response = authenticated_admin.post(url, data, format='json')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_confirm_meeting_too_soon(
+        self, authenticated_admin, company_user
+    ):
+        """Date less than 24h in the future should be rejected."""
+        profile = company_user.company_profile
+        too_soon = (timezone.now() + timedelta(hours=2)).isoformat()
+        profile.proposed_meeting_dates = [too_soon]
+        profile.verification_status = 'scheduled'
+        profile.save()
+        url = reverse('admin-confirm-meeting')
+        data = {
+            'company_id': profile.id,
+            'selected_date': too_soon,
+            'meeting_link': 'https://meet.google.com/abc-defg-hij',
+        }
+        response = authenticated_admin.post(url, data, format='json')
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    # ── verify_company ───────────────────────────────────────────────────
+    def test_verify_company_success(
+        self, authenticated_admin, company_user
+    ):
+        profile = company_user.company_profile
+        url = reverse('admin-verify-company')
+        data = {
+            'company_id': profile.id,
+            'verification_status': 'verified',
+        }
+        response = authenticated_admin.post(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+        profile.refresh_from_db()
+        assert profile.verification_status == 'verified'
+        assert profile.verified_at is not None
+        assert profile.verified_by is not None
+        company_user.refresh_from_db()
+        assert company_user.is_verified is True
+
+    def test_verify_company_reject(
+        self, authenticated_admin, company_user
+    ):
+        profile = company_user.company_profile
+        url = reverse('admin-verify-company')
+        data = {
+            'company_id': profile.id,
+            'verification_status': 'rejected',
+            'notes': 'Documents do not match.',
+        }
+        response = authenticated_admin.post(url, data, format='json')
+        assert response.status_code == status.HTTP_200_OK
+        profile.refresh_from_db()
+        assert profile.verification_status == 'rejected'
+
+    def test_verify_company_non_admin_forbidden(
+        self, authenticated_freelancer, company_user
+    ):
+        profile = company_user.company_profile
+        url = reverse('admin-verify-company')
+        data = {
+            'company_id': profile.id,
+            'verification_status': 'verified',
+        }
+        response = authenticated_freelancer.post(url, data, format='json')
+        assert response.status_code == status.HTTP_403_FORBIDDEN
