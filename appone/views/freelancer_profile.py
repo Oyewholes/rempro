@@ -115,7 +115,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
     serializer_class = FreelancerProfileSerializer
 
     def get_permissions(self):
-        if self.action in ["retrieve_by_digital_id", "public_profile"]:
+        if self.action in ["retrieve_by_digital_id"]:
             return [AllowAny()]
         return [IsAuthenticated(), IsFreelancer()]
 
@@ -129,12 +129,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get", "put", "patch"])
     def me(self, request):
         """Get or update current freelancer's profile"""
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
 
         if request.method == "GET":
             serializer = FreelancerProfileSerializer(
@@ -172,12 +167,8 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
           5. If geolocation fails entirely → return 503 so the client
              can retry rather than being permanently blocked.
         """
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
+
         if settings.DEBUG:
             ip_address = request.data.get("test_ip")  # or _get_client_ip(request)
         else:
@@ -258,12 +249,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"])
     def add_nin(self, request):
         """Add National Identification Number"""
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
 
         nin = request.data.get("nin")
         if not nin or len(nin) != 11:
@@ -285,12 +271,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"])
     def add_portfolio(self, request):
         """Add portfolio items"""
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
 
         portfolio_item = request.data.get("portfolio_item")
         if not portfolio_item:
@@ -317,12 +298,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"])
     def add_banking_details(self, request):
         """Add banking details (Paystack/Payoneer)"""
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
 
         paystack_email = request.data.get("paystack_email")
         payoneer_email = request.data.get("payoneer_email")
@@ -349,12 +325,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="digital-id/(?P<digital_id>[^/.]+)")
     def retrieve_by_digital_id(self, request, digital_id=None):
         """Retrieve freelancer profile by digital ID (public access with OTP for companies)"""
-        try:
-            profile = FreelancerProfile.objects.get(digital_id=digital_id)
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = FreelancerProfile.objects.get(digital_id=digital_id)
 
         # If accessed by a company, require OTP verification
         if request.user.is_authenticated and hasattr(request.user, "company_profile"):
@@ -385,12 +356,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
                 "status":  "processing"
             }
         """
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
 
         if profile.verification_status != "verified":
             return Response(
@@ -451,12 +417,7 @@ class FreelancerProfileViewSet(viewsets.ModelViewSet):
                 "generated":        true
             }
         """
-        try:
-            profile = request.user.freelancer_profile
-        except FreelancerProfile.DoesNotExist:
-            return Response(
-                {"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND
-            )
+        profile = request.user.freelancer_profile
 
         if not profile.id_card_image:
             if profile.verification_status == "verified":
