@@ -261,6 +261,12 @@ class JobPostingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Minimum salary must be less than maximum salary.")
         return data
 
+class JobSearchQuerySerializer(serializers.Serializer):
+    """Serializer to validate query parameters for searching jobs."""
+    q = serializers.CharField(required=False, help_text="Search by job title or description")
+    job_type = serializers.CharField(required=False, help_text="Filter by job type (e.g., Full-time)")
+    country = serializers.CharField(required=False, help_text="Filter by required country")
+
 
 class JobApplicationSerializer(serializers.ModelSerializer):
     """Serializer for Job Application creation and details."""
