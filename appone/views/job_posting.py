@@ -1,9 +1,9 @@
 from django.db.models import Q
-from rest_framework import viewsets, status, serializers
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from appone.permissions import (IsCompany, IsVerifiedCompany, IsOwnerOrReadOnly, IsFreelancerOrCompany)
+from appone.permissions import (IsCompany, IsVerifiedCompany, IsOwnerOrReadOnly, IsFreelancerOrCompany, IsVerifiedFreelancer)
 from appone.serializers import JobPostingSerializer, JobApplicationSerializer, JobSearchQuerySerializer
 from appone.models import JobPosting, JobApplication
 
@@ -22,6 +22,10 @@ class JobPostingViewSet(viewsets.ModelViewSet):
         # Creating jobs: Must be an authenticated VERIFIED company
         elif self.action == 'create':
             return [IsAuthenticated(), IsVerifiedCompany()]
+
+        # Freelancers applying: must be verified
+        elif self.action == 'apply':
+            return [IsAuthenticated(), IsVerifiedFreelancer()]
 
         # Must be a company AND own the post (IsOwnerOrReadOnly handles ownership)
         elif self.action in ['update', 'partial_update', 'destroy', 'publish', 'close', 'applications']:
@@ -105,3 +109,36 @@ class JobPostingViewSet(viewsets.ModelViewSet):
         # Return serialized results
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='apply')
+    def apply(self, request, pk=None):
+        """Freelancer applies to this specific job posting."""
+        job = self.get_object()
+
+        # Job must be active to accept applications
+        if job.status != 'active':
+            return Response(
+                {'error': 'This job posting is not currently accepting applications.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        freelancer = request.user.freelancer_profile
+
+        # Prevent duplicate applications (model also enforces unique_together)
+        if JobApplication.objects.filter(job=job, freelancer=freelancer).exists():
+            return Response(
+                {'error': 'You have already applied for this job.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = JobApplicationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        application = serializer.save(job=job, freelancer=freelancer)
+
+        return Response(
+            {
+                'message': 'Application submitted successfully.',
+                'application': JobApplicationSerializer(application).data
+            },
+            status=status.HTTP_201_CREATED
+        )
