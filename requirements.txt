@@ -11,3 +11,6 @@ celery
 redis
 cloudinary
 django-cloudinary-storage
+channels
+channels-redis
+daphne

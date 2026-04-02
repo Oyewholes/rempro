@@ -1,16 +1,26 @@
 """
 ASGI config for RemPro project.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
+Supports both HTTP (Django) and WebSocket (Django Channels) protocols.
+Run with Daphne:  daphne RemPro.asgi:application
 """
 
 import os
 
-from django.core.asgi import get_asgi_application
-
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "RemPro.settings")
 
-application = get_asgi_application()
+from django.core.asgi import get_asgi_application
+from channels.routing import ProtocolTypeRouter, URLRouter
+from channels.security.websocket import AllowedHostsOriginValidator
+from appone.routing import websocket_urlpatterns
+
+application = ProtocolTypeRouter({
+    # All standard HTTP requests go through Django as usual
+    "http": get_asgi_application(),
+
+    # WebSocket requests are routed through Channels
+    # AllowedHostsOriginValidator enforces ALLOWED_HOSTS for WS connections
+    "websocket": AllowedHostsOriginValidator(
+        URLRouter(websocket_urlpatterns)
+    ),
+})

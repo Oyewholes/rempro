@@ -36,6 +36,7 @@ DEBUG = config("DEBUG")
 # Application definition
 
 INSTALLED_APPS = [
+    "daphne",                                
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -47,6 +48,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
+    "channels",                             
     "appone",
     "django_extensions",
 ]
@@ -81,6 +83,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "RemPro.wsgi.application"
+ASGI_APPLICATION = "RemPro.asgi.application"
 
 
 REST_FRAMEWORK = {
@@ -258,6 +261,16 @@ if not DEBUG:
 # REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
 
 REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
+
+# Channel Layer — Redis backend for real-time WebSocket messaging
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+        },
+    },
+}
 
 # Celery Configuration
 CELERY_BROKER_URL = REDIS_URL
