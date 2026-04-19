@@ -2,10 +2,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter
 from appone.serializers import MessageSerializer
 from appone.models import Message
 
 
+@extend_schema(tags=['Messages'])
 class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all()
     serializer_class = MessageSerializer
@@ -30,6 +32,17 @@ class MessageViewSet(viewsets.ModelViewSet):
             message.flag_reason = 'Possible personal information exchange detected'
             message.save()
 
+    @extend_schema(
+        summary='Get workspace messages',
+        description='Retrieve all messages for a specific workspace.',
+        parameters=[
+            OpenApiParameter('workspace_id', str, description='Workspace UUID', required=True)
+        ],
+        responses={
+            200: MessageSerializer(many=True),
+            400: OpenApiResponse(description='workspace_id is required.'),
+        },
+    )
     @action(detail=False, methods=['get'])
     def workspace_messages(self, request):
         """Get messages for a specific workspace"""

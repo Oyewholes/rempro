@@ -2,12 +2,13 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from appone.serializers import TaskSerializer
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from appone.serializers import TaskSerializer, UpdateTaskStatusSerializer
 from appone.models import Task
 from django.utils import timezone
 
 
-
+@extend_schema(tags=['Tasks'])
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
@@ -23,14 +24,25 @@ class TaskViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @extend_schema(
+        summary='Update task status',
+        description='Update the status of a task (e.g. todo, in_progress, completed).',
+        request=UpdateTaskStatusSerializer,
+        responses={
+            200: OpenApiResponse(description='Task status updated.'),
+            400: OpenApiResponse(description='Invalid status.'),
+        },
+    )
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
         """Update task status"""
         task = self.get_object()
-        new_status = request.data.get('status')
+        serializer = UpdateTaskStatusSerializer(data=request.data)
 
-        if new_status not in dict(Task.STATUS_CHOICES):
-            return Response({'error': 'Invalid status'}, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        new_status = serializer.validated_data['status']
 
         task.status = new_status
         if new_status == 'completed':
@@ -41,4 +53,3 @@ class TaskViewSet(viewsets.ModelViewSet):
             'message': 'Task status updated',
             'task': TaskSerializer(task).data
         }, status=status.HTTP_200_OK)
-
