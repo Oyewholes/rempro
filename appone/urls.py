@@ -1,39 +1,33 @@
-from rest_framework.routers import DefaultRouter
 from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from appone.views import (
     AuthViewSet, OTPViewSet, FreelancerProfileViewSet,
     CompanyProfileViewSet, JobPostingViewSet, JobApplicationViewSet,
-    ContractViewSet, PaymentViewSet, WorkspaceViewSet, TaskViewSet,
-    MessageViewSet, AdminViewSet
+    ContractViewSet, WorkspaceViewSet, TaskViewSet,
+    MessageViewSet, PaymentViewSet, AdminViewSet
 )
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 router = DefaultRouter()
+router.register(r'auth', AuthViewSet, basename='auth')
+router.register(r'otp', OTPViewSet, basename='otp')
+router.register(r'freelancers', FreelancerProfileViewSet, basename='freelancer')
+router.register(r'companies', CompanyProfileViewSet, basename='company')
+router.register(r'jobs', JobPostingViewSet, basename='job')
+router.register(r'applications', JobApplicationViewSet, basename='application')
+router.register(r'contracts', ContractViewSet, basename='contract')
+router.register(r'workspaces', WorkspaceViewSet, basename='workspace')
+router.register(r'tasks', TaskViewSet, basename='task')
+router.register(r'messages', MessageViewSet, basename='message')
+router.register(r'payments', PaymentViewSet, basename='payment')
+router.register(r'admin-actions', AdminViewSet, basename='admin-action')
 
-
-router.register('auth', AuthViewSet, basename='auth')
-router.register('otp', OTPViewSet, basename='otp')
-
-# Profile Management
-router.register('freelancers', FreelancerProfileViewSet, basename='freelancer')
-router.register('companies', CompanyProfileViewSet, basename='company')
-
-# Core Business Logic
-router.register('jobs', JobPostingViewSet, basename='job')
-router.register('applications', JobApplicationViewSet, basename='application')
-router.register('contracts', ContractViewSet, basename='contract')
-router.register('payments', PaymentViewSet, basename='payment')
-
-# Collaboration & Communication
-router.register('workspaces', WorkspaceViewSet, basename='workspace')
-router.register('tasks', TaskViewSet, basename='task')
-router.register('messages', MessageViewSet, basename='message')
-
-# Admin Functions (Usually highly restricted)
-router.register('admin', AdminViewSet, basename='admin')
-
-
-# The API URLs are now determined automatically by the router.
-# The `router.urls` automatically includes the API root views.
 urlpatterns = [
+    # API Router
     path('', include(router.urls)),
+
+    # Schema & Documentation
+    path('schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]

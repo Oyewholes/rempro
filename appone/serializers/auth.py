@@ -1,12 +1,12 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.db import transaction
-from appone.models import User, FreelancerProfile, CompanyProfile, OTPVerification
-import re
-from appone.utils import generate_otp
 from django.utils import timezone
 from datetime import timedelta
+from appone.models import User, FreelancerProfile, CompanyProfile, OTPVerification
+from appone.utils import generate_otp
 from appone.tasks import send_otp_task
+import re
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -35,8 +35,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         style={'input_type': 'password'},
         label='Confirm Password',
     )
-
-    # Accepted here at registration
     phone_number = serializers.CharField(
         required=True,
         max_length=14,
@@ -53,10 +51,11 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Phone number must be in Nigerian format: +234XXXXXXXXXX"
             )
-        # Check uniqueness across FreelancerProfile
-        if (FreelancerProfile.objects.filter(phone_number=value).exists() or
-                CompanyProfile.objects.filter(phone_number=value).exists() or
-                User.objects.filter(phone_number=value).exists()):
+        if (
+            FreelancerProfile.objects.filter(phone_number=value).exists()
+            or CompanyProfile.objects.filter(phone_number=value).exists()
+            or User.objects.filter(phone_number=value).exists()
+        ):
             raise serializers.ValidationError(
                 "An account with this phone number already exists."
             )
@@ -85,33 +84,27 @@ class RegisterSerializer(serializers.ModelSerializer):
             phone_number=validated_data['phone_number'],
         )
         if user.user_type == 'freelancer':
-            FreelancerProfile.objects.create(
-                user=user,
-                phone_number=user.phone_number
-            )
-
+            FreelancerProfile.objects.create(user=user, phone_number=user.phone_number)
         elif user.user_type == 'admin':
-            User.objects.update(
-                is_staff = True
-            )
-
+            user.is_staff = True
+            user.save(update_fields=['is_staff'])
         elif user.user_type == 'company':
             CompanyProfile.objects.create(
                 user=user,
-                phone_number = user.phone_number,
+                phone_number=user.phone_number,
                 company_email=user.email,
             )
+
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
             otp_type='phone',
             phone_number=user.phone_number,
-            email = user.email,
+            email=user.email,
             expires_at=timezone.now() + timedelta(minutes=10),
         )
-
         try:
-            send_otp_task.delay(otp.id)  # async via Celery when broker is running
+            send_otp_task.delay(otp.id)
         except Exception:
             send_otp_task(otp.id)
 
@@ -148,3 +141,10 @@ class LoginSerializer(serializers.Serializer):
             )
         data['user'] = user
         return data
+
+
+class LogoutSerializer(serializers.Serializer):
+    """
+    Validates the refresh token for logout.
+    """
+    refresh = serializers.CharField(required=True)

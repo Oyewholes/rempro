@@ -1,10 +1,11 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema
 from appone.serializers import WorkspaceSerializer
 from appone.models import Workspace
 
 
-# Workspace Views
+@extend_schema(tags=['Workspaces'])
 class WorkspaceViewSet(viewsets.ModelViewSet):
     queryset = Workspace.objects.all()
     serializer_class = WorkspaceSerializer
