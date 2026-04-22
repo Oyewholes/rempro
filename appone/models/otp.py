@@ -1,20 +1,21 @@
-from django.db import models
 from django.core.validators import RegexValidator
+from django.db import models
 
 phone_validator = RegexValidator(
-    regex=r'^\+234\d{10}$',
+    regex=r"^\+234\d{10}$",
     message="Phone must be in format: '+234XXXXXXXXXX'",
 )
 
 
 class OTPVerification(models.Model):
     OTP_TYPE_CHOICES = (
-        ('phone', 'Phone Verification'),
-        ('company_access', 'Company Access'),
-        ('profile_access', 'Profile Access'),
+        ("phone", "Phone Verification"),
+        ("company_access", "Company Access"),
+        ("profile_access", "Profile Access"),
+        ("company_email", "Company Email"),
     )
 
-    user = models.ForeignKey('appone.User', on_delete=models.CASCADE)
+    user = models.ForeignKey("appone.User", on_delete=models.CASCADE)
     otp_code = models.CharField(max_length=6)
     otp_type = models.CharField(max_length=20, choices=OTP_TYPE_CHOICES)
     phone_number = models.CharField(

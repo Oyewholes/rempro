@@ -1,79 +1,76 @@
-# Serializers package — re-exports every serializer class so that
-# existing imports of the form `from appone.serializers import X` keep working.
-
-from .auth import RegisterSerializer, LoginSerializer, LogoutSerializer
-from .user import UserInfoSerializer
-from .otp import (
-    OTPVerificationSerializer,
-    OTPValidateSerializer,
-    AdminVerificationSerializer,
-    SendPhoneOTPSerializer,
+from .admin import (
+    AdminCompanyVerificationSerializer,
+    AdminConfirmMeetingSerializer,
 )
-from .freelancer import (
-    FreelancerProfileSerializer,
-    FreelancerProfileUpdateSerializer,
-    FreelancerPublicProfileSerializer,
-    AddNINSerializer,
-    AddPortfolioSerializer,
-    AddBankingDetailsSerializer,
-)
+from .auth import LoginSerializer, LogoutSerializer, RegisterSerializer
 from .company import (
     CompanyProfileSerializer,
     CompanyProfileUpdateSerializer,
+    ProposedMeetingDatesSerializer,
     ScheduleMeetingSerializer,
     VerifyCompanyRegistrationSerializer,
 )
+from .contract import ContractSerializer, PaymentSerializer
+from .freelancer import (
+    AddBankingDetailsSerializer,
+    AddNINSerializer,
+    AddPortfolioSerializer,
+    FreelancerProfileSerializer,
+    FreelancerProfileUpdateSerializer,
+    FreelancerPublicProfileSerializer,
+)
 from .job import (
-    JobPostingSerializer,
-    JobApplicationSerializer,
     HireFreelancerSerializer,
+    JobApplicationSerializer,
+    JobPostingSerializer,
     UpdateJobApplicationStatusSerializer,
 )
-from .contract import ContractSerializer, PaymentSerializer
+from .otp import (
+    AdminVerificationSerializer,
+    OTPValidateSerializer,
+    OTPVerificationSerializer,
+    SendPhoneOTPSerializer,
+)
+from .user import UserInfoSerializer
 from .workspace import (
-    WorkspaceSerializer,
-    TaskSerializer,
     MessageSerializer,
     ProfileAccessLogSerializer,
+    TaskSerializer,
     UpdateTaskStatusSerializer,
+    WorkspaceSerializer,
 )
 
 __all__ = [
-    # Auth
-    'RegisterSerializer',
-    'LoginSerializer',
-    'LogoutSerializer',
-    # User
-    'UserInfoSerializer',
-    # OTP / Admin
-    'OTPVerificationSerializer',
-    'OTPValidateSerializer',
-    'AdminVerificationSerializer',
-    'SendPhoneOTPSerializer',
-    # Freelancer
-    'FreelancerProfileSerializer',
-    'FreelancerProfileUpdateSerializer',
-    'FreelancerPublicProfileSerializer',
-    'AddNINSerializer',
-    'AddPortfolioSerializer',
-    'AddBankingDetailsSerializer',
-    # Company
-    'CompanyProfileSerializer',
-    'CompanyProfileUpdateSerializer',
-    'ScheduleMeetingSerializer',
-    'VerifyCompanyRegistrationSerializer',
-    # Jobs
-    'JobPostingSerializer',
-    'JobApplicationSerializer',
-    'HireFreelancerSerializer',
-    'UpdateJobApplicationStatusSerializer',
-    # Contracts & Payments
-    'ContractSerializer',
-    'PaymentSerializer',
-    # Workspace
-    'WorkspaceSerializer',
-    'TaskSerializer',
-    'MessageSerializer',
-    'ProfileAccessLogSerializer',
-    'UpdateTaskStatusSerializer',
+    "RegisterSerializer",
+    "LoginSerializer",
+    "LogoutSerializer",
+    "UserInfoSerializer",
+    "OTPVerificationSerializer",
+    "OTPValidateSerializer",
+    "AdminVerificationSerializer",
+    "SendPhoneOTPSerializer",
+    "AdminConfirmMeetingSerializer",
+    "AdminCompanyVerificationSerializer",
+    "FreelancerProfileSerializer",
+    "FreelancerProfileUpdateSerializer",
+    "FreelancerPublicProfileSerializer",
+    "AddNINSerializer",
+    "AddPortfolioSerializer",
+    "AddBankingDetailsSerializer",
+    "CompanyProfileSerializer",
+    "CompanyProfileUpdateSerializer",
+    "ScheduleMeetingSerializer",
+    "VerifyCompanyRegistrationSerializer",
+    "ProposedMeetingDatesSerializer",
+    "JobPostingSerializer",
+    "JobApplicationSerializer",
+    "HireFreelancerSerializer",
+    "UpdateJobApplicationStatusSerializer",
+    "ContractSerializer",
+    "PaymentSerializer",
+    "WorkspaceSerializer",
+    "TaskSerializer",
+    "MessageSerializer",
+    "ProfileAccessLogSerializer",
+    "UpdateTaskStatusSerializer",
 ]

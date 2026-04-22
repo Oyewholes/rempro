@@ -8,6 +8,7 @@ from appone.serializers import (
     CompanyProfileUpdateSerializer,
     ScheduleMeetingSerializer,
     VerifyCompanyRegistrationSerializer,
+    ProposedMeetingDatesSerializer,
 )
 from appone.models import CompanyProfile
 from appone.permissions import IsCompany
@@ -55,6 +56,59 @@ class CompanyProfileViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(CompanyProfileSerializer(profile).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        summary='Propose meeting dates',
+        description=(
+            'Submit 1-3 proposed meeting date/time options for the admin '
+            'verification meeting.'
+        ),
+        request=ProposedMeetingDatesSerializer,
+        responses={
+            200: OpenApiResponse(description='Proposed meeting dates submitted.'),
+            400: OpenApiResponse(description='Validation error.'),
+            404: OpenApiResponse(description='Profile not found.'),
+        },
+    )
+    @action(detail=False, methods=['post'], url_path='propose-meeting-dates')
+    def propose_meeting_dates(self, request):
+        """Submit proposed meeting date/time options."""
+        try:
+            profile = request.user.company_profile
+        except CompanyProfile.DoesNotExist:
+            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if profile.verification_status in ('verified', 'rejected'):
+            return Response(
+                {
+                    'error': (
+                        f"Your company is already '{profile.verification_status}'. "
+                        "Meeting dates can only be proposed while status is pending or scheduled."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ProposedMeetingDatesSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        proposed = serializer.validated_data['proposed_dates']
+        profile.proposed_meeting_dates = [dt.isoformat() for dt in proposed]
+        profile.verification_status = 'scheduled'
+        profile.save(update_fields=['proposed_meeting_dates', 'verification_status', 'updated_at'])
+
+        return Response(
+            {
+                'message': (
+                    "Your proposed meeting dates have been submitted. "
+                    "An admin will confirm one of the slots."
+                ),
+                'proposed_dates': profile.proposed_meeting_dates,
+                'verification_status': profile.verification_status,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         summary='Schedule verification meeting',

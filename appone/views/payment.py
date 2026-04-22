@@ -1,14 +1,15 @@
-from rest_framework import viewsets, status, serializers
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiResponse
-from appone.serializers import PaymentSerializer
-from appone.models import Payment
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from appone.models import Payment
+from appone.serializers import PaymentSerializer
 
 
-@extend_schema(tags=['Payments'])
+@extend_schema(tags=["Payments"])
 class PaymentViewSet(viewsets.ModelViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
@@ -26,8 +27,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
         return Payment.objects.none()
 
     @extend_schema(
-        summary='Create a payment',
-        description='Initiate a payment. Automatically calculates and deducts platform, dwelling country, and work country taxes based on the contract rates.',
+        summary="Create a payment",
+        description="Initiate a payment.",
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
@@ -36,7 +37,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
         """Create payment with tax calculations"""
         if not hasattr(self.request.user, "company_profile"):
             raise serializers.ValidationError(
-                "Only companies can initiate payments"
+                "Only companies can initiate payments",
             )
 
         contract = serializer.validated_data["contract"]
@@ -53,15 +54,17 @@ class PaymentViewSet(viewsets.ModelViewSet):
             dwelling_country_tax=dwelling_tax,
             work_country_tax=work_tax,
             net_amount=net_amount,
-            transaction_reference=f"TXN-{timezone.now().strftime('%Y%m%d%H%M%S')}-{contract.id}",
+            transaction_reference=(
+                f"TXN-{timezone.now().strftime('%Y%m%d%H%M%S')}-{contract.id}",
+            ),
         )
 
     @extend_schema(
-        summary='Process payment',
-        description='Process a pending payment. This would integrate with a gateway like Paystack.',
+        summary="Process payment",
+        description="Process a pending payment.",
         responses={
-            200: OpenApiResponse(description='Payment processed.'),
-            400: OpenApiResponse(description='Payment already processed.'),
+            200: OpenApiResponse(description="Payment processed."),
+            400: OpenApiResponse(description="Payment already processed."),
         },
     )
     @action(detail=True, methods=["post"])

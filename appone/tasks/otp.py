@@ -1,23 +1,16 @@
+import logging
+
 from celery import shared_task
 from django.utils import timezone
+
 from appone.models import OTPVerification
-from appone.utils import send_otp_sms, send_otp_email
-import logging
+from appone.utils import send_otp_email, send_otp_sms
 
 logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def send_otp_task(self, otp_id):
-    """
-    Async task to send OTP via SMS or Email.
-
-    Args:
-        otp_id: ID of the OTPVerification object.
-
-    Returns:
-        dict: Status of the operation.
-    """
     try:
         otp = OTPVerification.objects.get(id=otp_id)
 
@@ -30,13 +23,21 @@ def send_otp_task(self, otp_id):
         success = False
         if otp.otp_type == "phone":
             success = send_otp_sms(otp.phone_number, otp.otp_code)
-        elif otp.otp_type in ["company_access", "profile_access"]:
+        elif otp.otp_type in [
+            "company_access",
+            "profile_access",
+            "company_email",
+        ]:
             success = send_otp_email(otp.email, otp.otp_code, otp.otp_type)
         else:
             return {"success": False, "error": "Unknown OTP type"}
 
         if success:
-            return {"success": True, "otp_id": str(otp_id), "otp_type": otp.otp_type}
+            return {
+                "success": True,
+                "otp_id": str(otp_id),
+                "otp_type": otp.otp_type,
+            }
 
         if self.request.retries < self.max_retries:
             raise self.retry(exc=Exception("SMS/Email sending failed"))
@@ -53,10 +54,6 @@ def send_otp_task(self, otp_id):
 
 @shared_task
 def cleanup_expired_otps():
-    """
-    Periodic task to clean up expired OTPs.
-    Run every hour via Celery Beat.
-    """
     try:
         expired = OTPVerification.objects.filter(
             is_verified=False, expires_at__lt=timezone.now()
