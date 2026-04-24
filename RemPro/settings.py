@@ -12,8 +12,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-xlf778i(+qh3xn!nel@s@3u)unpmkwafkq-rf=i)r7!q9&11i&"
 
 ALLOWED_HOSTS = ["*"]
-DEBUG = config("DEBUG")
-
+# DEBUG = config("DEBUG")
+DEBUG = config("DEBUG", default=False, cast=bool)
 
 INSTALLED_APPS = [
     "daphne",
