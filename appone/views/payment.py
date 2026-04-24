@@ -8,7 +8,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.viewa import APIView
+from rest_framework.views import APIView
 
 from appone.models import Payment
 from appone.serializers import PaymentSerializer
