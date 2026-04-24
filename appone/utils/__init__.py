@@ -15,7 +15,11 @@ from .otp import (
     send_otp_sms,
     send_otp_sms_africas_talking,
 )
-from .payment import calculate_payment_breakdown, process_paystack_payment
+from .payment import (
+    calculate_payment_breakdown,
+    create_paystack_subaccount,
+    process_paystack_payment,
+)
 from .responses import APIResponse
 from .tax import calculate_tax_split
 from .verification import (
@@ -45,4 +49,5 @@ __all__ = [
     "send_notification_email",
     "calculate_tax_split",
     "APIResponse",
+    "create_paystack_subaccount",
 ]

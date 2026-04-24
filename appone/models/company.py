@@ -10,6 +10,7 @@ phone_validator = RegexValidator(
 class CompanyProfile(models.Model):
     VERIFICATION_STATUS = (
         ("pending", "Pending"),
+        ("pending_scheduling", "Pending Scheduling"),
         ("scheduled", "Meeting Scheduled"),
         ("verified", "Verified"),
         ("rejected", "Rejected"),

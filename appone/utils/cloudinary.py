@@ -1,28 +1,10 @@
 import time
-import requests
+
 import cloudinary.uploader
 import cloudinary.utils
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def upload_to_cloudinary(file, file_type, freelancer_id):
-    """
-    Upload any file to Cloudinary and return the secure URL (public_id).
-
-    Args:
-        file:          File-like object opened in binary mode.
-        file_type:     Used as the public_id prefix and subfolder,
-                       e.g. 'cv', 'live_photo', 'id_card'
-        freelancer_id: UUID that makes the public_id unique per freelancer.
-
-    Returns:
-        str: Cloudinary public_id on success.
-
-    Raises:
-        Exception: Propagates Cloudinary errors — never swallows silently.
-    """
     resource_type = "image" if file_type in ("live_photo", "id_card") else "raw"
 
     result = cloudinary.uploader.upload(
@@ -39,12 +21,6 @@ def upload_to_cloudinary(file, file_type, freelancer_id):
 def generate_signed_url(
     public_id: str, resource_type: str = "image", expiry_seconds: int = 300
 ) -> str:
-    """
-    Generate a time-limited signed Cloudinary URL.
-
-    Uses private_download_url so the signature and expiry are validated on
-    every request — CDN caching is bypassed entirely.
-    """
     fmt = (
         "png"
         if resource_type == "image"
@@ -67,9 +43,6 @@ def generate_signed_download_url(
     resource_type: str = "image",
     expiry_seconds: int = 300,
 ) -> str:
-    """
-    Same as generate_signed_url but forces a file download with a custom filename.
-    """
     fmt = (
         "png"
         if resource_type == "image"

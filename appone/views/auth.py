@@ -2,7 +2,6 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -18,22 +17,6 @@ from appone.utils import APIResponse
 class AuthViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
-    @extend_schema(
-        summary="Register a new user",
-        description=(
-            "Creates a new User account along with the corresponding "
-            "FreelancerProfile or CompanyProfile. Also creates a pending "
-            "OTPVerification record and triggers an SMS to the supplied "
-            "phone number via Celery."
-        ),
-        request=RegisterSerializer,
-        responses={
-            201: OpenApiResponse(
-                description="Registration successful — tokens returned."
-            ),
-            400: OpenApiResponse(description="Validation error."),
-        },
-    )
     @extend_schema(
         summary="Register a new freelancer",
         request=RegisterSerializer,
@@ -112,7 +95,11 @@ class AuthViewSet(viewsets.ViewSet):
                 message="Login successful",
             )
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return APIResponse(
+            message=serializer.errors,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            status="error",
+        )
 
     @extend_schema(
         summary="Logout",

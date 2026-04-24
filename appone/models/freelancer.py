@@ -1,31 +1,30 @@
-from django.db import models
-from django.core.validators import RegexValidator
 import uuid
 
+from django.core.validators import RegexValidator
+from django.db import models
+
 phone_validator = RegexValidator(
-    regex=r'^\+234\d{10}$',
+    regex=r"^\+234\d{10}$",
     message="Phone must be in format: '+234XXXXXXXXXX'",
 )
 
 
 class FreelancerProfile(models.Model):
     VERIFICATION_STATUS = (
-        ('pending', 'Pending'),
-        ('verified', 'Verified'),
-        ('rejected', 'Rejected'),
+        ("pending", "Pending"),
+        ("verified", "Verified"),
+        ("rejected", "Rejected"),
     )
 
     user = models.OneToOneField(
-        'appone.User',
+        "appone.User",
         on_delete=models.CASCADE,
-        related_name='freelancer_profile',
+        related_name="freelancer_profile",
     )
     phone_number = models.CharField(
         validators=[phone_validator], max_length=14, unique=False, blank=True
     )
     phone_verified = models.BooleanField(default=False)
-
-    # Personal Information
     first_name = models.CharField(max_length=100, blank=True)
     last_name = models.CharField(max_length=100, blank=True)
     nin = models.CharField(
@@ -34,49 +33,36 @@ class FreelancerProfile(models.Model):
         help_text="National Identification Number",
         blank=True,
     )
-
-    # Location Verification
     ip_address = models.GenericIPAddressField(null=True, blank=True)
-    country_code = models.CharField(max_length=3, default='NGA')
+    country_code = models.CharField(max_length=3, default="NGA")
     location_verified = models.BooleanField(default=False)
-
-    # Documents
     cv_file = models.URLField(null=True, blank=True)
     live_photo = models.URLField(null=True, blank=True)
     portfolio_files = models.JSONField(default=list, blank=True)
-
-    # Digital Identity
     digital_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     digital_id_link = models.CharField(max_length=500, blank=True)
     id_card_image = models.URLField(null=True, blank=True)
-
-    # Verification
     verification_status = models.CharField(
-        max_length=20, choices=VERIFICATION_STATUS, default='pending'
+        max_length=20, choices=VERIFICATION_STATUS, default="pending"
     )
     admin_verified_at = models.DateTimeField(null=True, blank=True)
     admin_verified_by = models.ForeignKey(
-        'appone.User',
+        "appone.User",
         on_delete=models.SET_NULL,
         null=True,
-        related_name='verified_freelancers',
+        related_name="verified_freelancers",
     )
-
-    # Profile Completion
     profile_completion_percentage = models.IntegerField(default=0)
-
-    # Banking Details
     paystack_email = models.EmailField(null=True, blank=True)
     payoneer_email = models.EmailField(null=True, blank=True)
     bank_details_verified = models.BooleanField(default=False)
-
-    # Skills and Experience
+    bank_name = models.CharField(max_length=100, blank=True)
+    bank_code = models.CharField(max_length=20, blank=True)
+    account_number = models.CharField(max_length=20, blank=True)
+    paystack_subaccount_code = models.CharField(max_length=50, blank=True)
     skills = models.JSONField(default=list, blank=True)
     bio = models.TextField(blank=True)
-
-    # Approved Countries for Work
     approved_countries = models.JSONField(default=list, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -97,5 +83,5 @@ class FreelancerProfile(models.Model):
         ]
         completed = sum(fields)
         self.profile_completion_percentage = int((completed / len(fields)) * 100)
-        self.save(update_fields=['profile_completion_percentage'])
+        self.save(update_fields=["profile_completion_percentage"])
         return self.profile_completion_percentage

@@ -1,6 +1,7 @@
 from .admin import (
     AdminCompanyVerificationSerializer,
     AdminConfirmMeetingSerializer,
+    CountryTaxAccountSerializer,
 )
 from .auth import LoginSerializer, LogoutSerializer, RegisterSerializer
 from .company import (
@@ -18,6 +19,8 @@ from .freelancer import (
     FreelancerProfileSerializer,
     FreelancerProfileUpdateSerializer,
     FreelancerPublicProfileSerializer,
+    UploadCVSerializer,
+    UploadLivePhotoSerializer,
 )
 from .job import (
     HireFreelancerSerializer,
@@ -73,4 +76,7 @@ __all__ = [
     "MessageSerializer",
     "ProfileAccessLogSerializer",
     "UpdateTaskStatusSerializer",
+    "UploadCVSerializer",
+    "UploadLivePhotoSerializer",
+    "CountryTaxAccountSerializer",
 ]

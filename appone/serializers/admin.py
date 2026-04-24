@@ -1,8 +1,8 @@
-from datetime import timedelta
-
 from dateutil.parser import parse as parse_dt
 from django.utils import timezone
 from rest_framework import serializers
+
+from appone.models import CountryTaxAccount
 
 
 class AdminConfirmMeetingSerializer(serializers.Serializer):
@@ -44,16 +44,15 @@ class AdminConfirmMeetingSerializer(serializers.Serializer):
                 }
             )
 
-        now = timezone.now()
-        if selected < now + timedelta(hours=24):
-            raise serializers.ValidationError(
-                {
-                    "selected_date": "The selected date must be at least 24 hours in the future."
-                }
-            )
-
         data["company"] = company
         return data
+
+
+class CountryTaxAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CountryTaxAccount
+        fields = "__all__"
+        read_only_fields = ("paystack_subaccount_code",)
 
 
 class AdminCompanyVerificationSerializer(serializers.Serializer):
