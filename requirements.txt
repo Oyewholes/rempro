@@ -18,4 +18,3 @@ psycopg2-binary
 python-decouple
 Pillow
 boto3
-EOF
