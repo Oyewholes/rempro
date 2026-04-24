@@ -1,39 +1,32 @@
-from rest_framework import serializers
+import re
+from datetime import timedelta
+
 from django.contrib.auth import authenticate
 from django.db import transaction
 from django.utils import timezone
-from datetime import timedelta
-from appone.models import User, FreelancerProfile, CompanyProfile, OTPVerification
-from appone.utils import generate_otp
+from rest_framework import serializers
+
+from appone.models import (
+    CompanyProfile,
+    FreelancerProfile,
+    OTPVerification,
+    User,
+)
 from appone.tasks import send_otp_task
-import re
+from appone.utils import generate_otp
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    """
-    Validates and creates a new user on registration.
-
-    Expects:
-        - email
-        - password / password2  (confirmation, write-only, never returned)
-        - user_type              (freelancer | company | admin)
-        - phone_number           (used to seed the profile + kick off OTP)
-
-    On success this creates three records atomically:
-        1. User
-        2. FreelancerProfile or CompanyProfile (seeded with phone_number)
-        3. OTPVerification  (phone type, 10-min expiry, ready to be sent)
-    """
     password = serializers.CharField(
         write_only=True,
         required=True,
-        style={'input_type': 'password'},
+        style={"input_type": "password"},
     )
     password2 = serializers.CharField(
         write_only=True,
         required=True,
-        style={'input_type': 'password'},
-        label='Confirm Password',
+        style={"input_type": "password"},
+        label="Confirm Password",
     )
     phone_number = serializers.CharField(
         required=True,
@@ -43,11 +36,18 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'email', 'user_type', 'password', 'password2', 'phone_number')
-        read_only_fields = ('id',)
+        fields = (
+            "id",
+            "email",
+            "user_type",
+            "password",
+            "password2",
+            "phone_number",
+        )
+        read_only_fields = ("id",)
 
     def validate_phone_number(self, value):
-        if not re.match(r'^\+234\d{10}$', value):
+        if not re.match(r"^\+234\d{10}$", value):
             raise serializers.ValidationError(
                 "Phone number must be in Nigerian format: +234XXXXXXXXXX"
             )
@@ -62,43 +62,52 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_user_type(self, value):
-        if value not in ('freelancer', 'company', 'admin'):
+        expected_user_type = self.context.get("expected_user_type")
+        if expected_user_type and value != expected_user_type:
             raise serializers.ValidationError(
-                "user_type must be 'freelancer' or 'company' or 'admin'."
+                f"user_type must be {expected_user_type}."
             )
         return value
 
     def validate(self, data):
-        if data['password'] != data['password2']:
-            raise serializers.ValidationError({'password': "Password fields didn't match."})
+        if data["password"] != data["password2"]:
+            raise serializers.ValidationError(
+                {"password": "Password fields didn't match."}
+            )
         return data
 
     @transaction.atomic
     def create(self, validated_data):
-        validated_data.pop('password2')
+        validated_data.pop("password2")
+        user_type = validated_data["user_type"]
 
         user = User.objects.create_user(
-            email=validated_data['email'],
-            password=validated_data['password'],
-            user_type=validated_data['user_type'],
-            phone_number=validated_data['phone_number'],
+            email=validated_data["email"],
+            password=validated_data["password"],
+            user_type=user_type,
+            phone_number=validated_data["phone_number"],
         )
-        if user.user_type == 'freelancer':
-            FreelancerProfile.objects.create(user=user, phone_number=user.phone_number)
-        elif user.user_type == 'admin':
-            user.is_staff = True
-            user.save(update_fields=['is_staff'])
-        elif user.user_type == 'company':
-            CompanyProfile.objects.create(
+        if user_type == "freelancer":
+            FreelancerProfile.objects.create(
                 user=user,
                 phone_number=user.phone_number,
+            )
+            otp_type = "phone"
+
+        elif user_type == "company":
+            CompanyProfile.objects.create(
+                user=user,
                 company_email=user.email,
             )
+            otp_type = "company_email"
+
+        elif user_type == "admin":
+            otp_type = "phone"
 
         otp = OTPVerification.objects.create(
             user=user,
             otp_code=generate_otp(),
-            otp_type='phone',
+            otp_type=otp_type,
             phone_number=user.phone_number,
             email=user.email,
             expires_at=timezone.now() + timedelta(minutes=10),
@@ -116,30 +125,31 @@ class LoginSerializer(serializers.Serializer):
     Validates login credentials.
     On success, the authenticated User instance is available at validated_data['user'].
     """
+
     email = serializers.EmailField(required=True)
     password = serializers.CharField(
         write_only=True,
         required=True,
-        style={'input_type': 'password'},
+        style={"input_type": "password"},
     )
 
     def validate(self, data):
         user = authenticate(
-            request=self.context.get('request'),
-            username=data['email'],
-            password=data['password'],
+            request=self.context.get("request"),
+            username=data["email"],
+            password=data["password"],
         )
         if not user:
             raise serializers.ValidationError(
-                'Unable to log in with provided credentials.',
-                code='authorization',
+                "Unable to log in with provided credentials.",
+                code="authorization",
             )
         if not user.is_active:
             raise serializers.ValidationError(
-                'User account is disabled.',
-                code='authorization',
+                "User account is disabled.",
+                code="authorization",
             )
-        data['user'] = user
+        data["user"] = user
         return data
 
 
@@ -147,4 +157,5 @@ class LogoutSerializer(serializers.Serializer):
     """
     Validates the refresh token for logout.
     """
+
     refresh = serializers.CharField(required=True)

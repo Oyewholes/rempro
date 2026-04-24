@@ -1,7 +1,5 @@
 import requests
-import logging
-
-logger = logging.getLogger(__name__)
+from django.core.cache import cache
 
 NIGERIA_COUNTRY_CODE = "NG"
 NIGERIA_COUNTRY_NAME = "Nigeria"
@@ -29,16 +27,12 @@ def _build_location_result(
 
 
 def get_ip_location(ip_address: str) -> dict | None:
-    """
-    Resolve a public IP address to location data.
+    cache_key = f"ip_location_{ip_address}"
+    cached_location = cache.get(cache_key)
 
-    Strategy:
-        1. Try ipapi.co (1 000 req / day free, no key needed).
-        2. Fall back to ip-api.com (45 req / min free, HTTP only).
-
-    Returns a dict with keys: country_code, country_name, city, region,
-    latitude, longitude, is_nigeria — or None when both services fail.
-    """
+    if cached_location:
+        return cached_location
+    result = None
     try:
         resp = requests.get(
             f"https://ipapi.co/{ip_address}/json/",
@@ -48,7 +42,7 @@ def get_ip_location(ip_address: str) -> dict | None:
         if resp.status_code == 200:
             data = resp.json()
             if not data.get("error"):
-                return _build_location_result(
+                result = _build_location_result(
                     country_code=data.get("country_code", ""),
                     country_name=data.get("country_name", ""),
                     city=data.get("city", ""),
@@ -59,36 +53,44 @@ def get_ip_location(ip_address: str) -> dict | None:
     except requests.RequestException:
         pass
 
-    try:
-        resp = requests.get(
-            f"http://ip-api.com/json/{ip_address}"
-            "?fields=status,country,countryCode,regionName,city,lat,lon",
-            timeout=5,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            if data.get("status") == "success":
-                return _build_location_result(
-                    country_code=data.get("countryCode", ""),
-                    country_name=data.get("country", ""),
-                    city=data.get("city", ""),
-                    region=data.get("regionName", ""),
-                    latitude=data.get("lat"),
-                    longitude=data.get("lon"),
-                )
-    except requests.RequestException:
-        pass
+    if not result:
+        try:
+            resp = requests.get(
+                f"https://ip-api.com/json/{ip_address}"
+                "?fields=status,country,countryCode,regionName,city,lat,lon",
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    result = _build_location_result(
+                        country_code=data.get("countryCode", ""),
+                        country_name=data.get("country", ""),
+                        city=data.get("city", ""),
+                        region=data.get("regionName", ""),
+                        latitude=data.get("lat"),
+                        longitude=data.get("lon"),
+                    )
+        except requests.RequestException:
+            pass
+    if result:
+        cache.set(cache_key, result, timeout=86400)
 
-    return None
+    return result
 
 
 def verify_user_is_in_nigeria(ip_address: str) -> tuple[bool, dict | None, str]:
-    """
-    High-level helper — resolves IP and checks whether it maps to Nigeria.
-
-    Returns:
-        (is_verified: bool, location_data: dict | None, reason: str)
-    """
+    if ip_address.startswith(_LOCAL_IP_PREFIXES):
+        return (
+            True,
+            {
+                "country_code": "NG",
+                "country_name": "Nigeria",
+                "city": "Localhost",
+                "is_nigeria": True,
+            },
+            "Local environment bypassed",
+        )
     location = get_ip_location(ip_address)
 
     if location is None:
@@ -107,11 +109,8 @@ def verify_user_is_in_nigeria(ip_address: str) -> tuple[bool, dict | None, str]:
 
 
 def verify_nigerian_nin(nin):
-    """
-    Verify Nigerian NIN with government API.
-    Placeholder — integrate with the actual Nigerian government API.
-    """
     from django.conf import settings
+
     try:
         url = f"{settings.GOVT_API_BASE_URL}nin/verify"
         headers = {
@@ -122,17 +121,13 @@ def verify_nigerian_nin(nin):
         if response.status_code == 200:
             return response.json()
         return None
-    except Exception as exc:
-        logger.error("verify_nigerian_nin error: %s", exc)
+    except Exception:
         return None
 
 
 def verify_company_registration(registration_number, country):
-    """
-    Verify company registration with government database.
-    Placeholder — integrate with actual government APIs.
-    """
     from django.conf import settings
+
     try:
         api_endpoints = {
             "USA": f"{settings.GOVT_API_BASE_URL}us/company/verify",
@@ -145,11 +140,12 @@ def verify_company_registration(registration_number, country):
             "Content-Type": "application/json",
         }
         response = requests.post(
-            url, headers=headers, json={"registration_number": registration_number}
+            url,
+            headers=headers,
+            json={"registration_number": registration_number},
         )
         if response.status_code == 200:
             return response.json()
         return None
-    except Exception as exc:
-        logger.error("verify_company_registration error: %s", exc)
+    except Exception:
         return None

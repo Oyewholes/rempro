@@ -12,6 +12,8 @@ click-repl==0.3.0
 cloudinary==1.44.1
 dj-database-url==3.1.2
 Django==6.0
+drf-spectacular
+django-ipware
 django-cloudinary-storage==0.3.0
 django-cors-headers==4.9.0
 django-extensions==4.1
@@ -44,3 +46,6 @@ urllib3==2.6.2
 vine==5.1.0
 wcwidth==0.2.14
 whitenoise==6.12.0
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2

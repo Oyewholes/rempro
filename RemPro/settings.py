@@ -7,24 +7,16 @@ import dj_database_url
 from celery.schedules import crontab
 from decouple import config
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = "django-insecure-xlf778i(+qh3xn!nel@s@3u)unpmkwafkq-rf=i)r7!q9&11i&"
 
-# SECURITY WARNING: don't run with debug turned on in production!
 ALLOWED_HOSTS = ["*"]
 DEBUG = config("DEBUG")
 
 
-# Application definition
-
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -36,6 +28,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
+    "channels",
     "appone",
     "django_extensions",
     "drf_spectacular",
@@ -72,6 +65,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "RemPro.wsgi.application"
+ASGI_APPLICATION = "RemPro.asgi.application"
 
 
 REST_FRAMEWORK = {
@@ -98,10 +92,8 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "API documentation for the RemPro Virtual Citizenship application.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    # OTHER SETTINGS
 }
 
-# JWT Configuration
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=48),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
@@ -116,13 +108,8 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
-# CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True  # Change in production
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
-
-
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 
 DATABASES = {
@@ -132,13 +119,9 @@ DATABASES = {
     }
 }
 
-# This parses the DATABASE_URL from Render and updates the settings
-db_from_env = dj_database_url.config(conn_max_age=600)
-DATABASES["default"].update(db_from_env)
-
-
-# Password validation
-# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
+if config("DATABASE_URL", default=None):
+    db_from_env = dj_database_url.config(conn_max_age=600)
+    DATABASES["default"].update(db_from_env)
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -156,9 +139,6 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# Internationalization
-# https://docs.djangoproject.com/en/6.0/topics/i18n/
-
 LANGUAGE_CODE = "en-us"
 
 TIME_ZONE = "UTC"
@@ -168,54 +148,39 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.0/howto/static-files/
-
 STATIC_URL = "static/"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
-# Maximum file upload sizes
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
 
-# Email Configuration (for OTP and notifications)
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 465
 EMAIL_USE_TLS = False
 EMAIL_USE_SSL = True
-# EMAIL_HOST_USER = config("EMAIL_HOST_USER")
-# EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = f"Virtual Citizenship <{config('EMAIL_HOST_USER')}>"
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="dummy@example.com")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="dummy_password")
 
-# SMS Configuration (Example: Africa's Talking)
 SMS_API_KEY = "your-sms-api-key"
 SMS_USERNAME = "your-sms-username"
 SMS_SENDER_ID = "VirtualCiti"
 
-# Payment Gateway Configuration
-# Paystack
 PAYSTACK_SECRET_KEY = "your-paystack-secret-key"
 PAYSTACK_PUBLIC_KEY = "your-paystack-public-key"
 
-# Government API Configuration (for verification)
 GOVT_API_BASE_URL = "https://api.government.ng/v1/"
 GOVT_API_KEY = "your-government-api-key"
 
-# Twilio SMS OTP Configuration
-# TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID")
-# TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN")
-# TWILIO_PHONE_NUMBER = config("TWILIO_PHONE_NUMBER")
+
 TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID", default="dummy_sid")
 TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN", default="dummy_token")
 TWILIO_PHONE_NUMBER = config("TWILIO_PHONE_NUMBER", default="+123456789")
 
 
-# Logging Configuration
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -256,7 +221,6 @@ LOGGING = {
     },
 }
 
-# Security Settings (for production)
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
@@ -265,13 +229,18 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
 
-# Build the Redis URL from your env vars
-# REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
-
 # REDIS_URL = f"redis://{config('REDIS_USERNAME')}:{config('REDIS_PASSWORD')}@{config('REDIS_HOST')}:{config('REDIS_PORT')}/0"
 REDIS_URL = config("REDIS_URL", default="redis://localhost:6379/0")
 
-# Celery Configuration
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+        },
+    },
+}
+
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_ACCEPT_CONTENT = ["json"]
@@ -282,7 +251,6 @@ CELERY_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = False
 # CELERY_WORKER_POOL = 'solo'
 
-# Cache Configuration
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -290,11 +258,10 @@ CACHES = {
     }
 }
 
-# Celery Beat Schedule (for periodic tasks)
 CELERY_BEAT_SCHEDULE = {
     "cleanup-expired-otps": {
         "task": "appone.tasks.cleanup_expired_otps",
-        "schedule": crontab(minute=0),  # Every hour
+        "schedule": crontab(minute=0),
     },
 }
 
